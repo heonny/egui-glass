@@ -66,6 +66,15 @@ blank, so retry rather than assume a bug.
 - Verify visually after shader or layout changes: capture the demo and inspect the pixels; a CPU
   replica of the SDF was the fastest way to find the sign bug.
 
+## Release
+
+The library is published to crates.io from `crates/egui_glass` (no path dependencies; the
+README is pulled in from the workspace root). `cargo publish -p egui_glass --dry-run` must pass.
+Bump `version` in `crates/egui_glass/Cargo.toml`, commit, then `git tag vX.Y.Z && git push origin
+vX.Y.Z`: `.github/workflows/release.yml` checks the tag against the version and publishes with the
+`CARGO_REGISTRY_TOKEN` secret. CI (`ci.yml`) runs library tests/clippy on Linux, macOS and Windows
+and builds the demo on macOS and Windows.
+
 ## Conventions
 
 - Commits: `<type>: <title>` (feat, fix, refactor, docs, test, chore), imperative, no emojis, no

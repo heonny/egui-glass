@@ -77,8 +77,9 @@ You do not need this repository checked out; add the crate as a git dependency (
 [dependencies]
 eframe = { version = "0.35", default-features = false, features = ["default_fonts", "wgpu"] }
 egui = "0.35"
-egui_glass = { git = "https://github.com/heonny/egui-glass.git" }            # not on crates.io yet
-# egui_glass = { git = "...", features = ["serde"] }   # GlassStyle: Serialize / Deserialize
+egui_glass = "0.1"                                     # from crates.io
+# egui_glass = { version = "0.1", features = ["serde"] }             # GlassStyle: Serialize / Deserialize
+# egui_glass = { git = "https://github.com/heonny/egui-glass.git" }   # or track the repository
 ```
 
 Minimal app (also in the repo as `examples/demo/examples/minimal.rs`, run it with
