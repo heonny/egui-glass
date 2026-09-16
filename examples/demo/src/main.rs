@@ -133,7 +133,8 @@ impl App {
         let rs = cc.wgpu_render_state.as_ref().expect("demo requires the wgpu backend");
         egui_glass::init(rs, 1);
         let live = LiveBackdrop::new(rs, Some(fonts::system_fonts()));
-        let mut photos: Vec<PathBuf> = std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../asset"))
+        let mut photos: Vec<PathBuf> = asset_dir()
+            .and_then(|dir| std::fs::read_dir(dir).ok())
             .map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "jpg" || e == "png")).collect())
             .unwrap_or_default();
         photos.sort();
@@ -421,6 +422,14 @@ impl eframe::App for App {
         });
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.scene(ui, frame));
     }
+}
+
+/// Where the bundled photos live: next to the executable inside a macOS .app
+/// (`Contents/Resources/asset`), else `examples/asset` under the working
+/// directory when run with `cargo run`.
+fn asset_dir() -> Option<PathBuf> {
+    let bundled = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|p| p.join("../Resources/asset")));
+    [bundled, Some(PathBuf::from("examples/asset"))].into_iter().flatten().find(|p| p.is_dir())
 }
 
 /// Apple-style "toggle sidebar" glyph: a rounded rectangle with a divider.
