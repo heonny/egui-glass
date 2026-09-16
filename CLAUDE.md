@@ -31,6 +31,8 @@ blank, so retry rather than assume a bug.
   paint-callback `prepare`, GPU mip blits, then bound as this frame's backdrop.
 - `style.rs` — `GlassStyle` and presets; `widgets.rs` — `Glass`, `GlassButton`, `GlassToolbar`,
   `paint_glass`, flat visuals for controls sitting on glass.
+- `assets/branding/` — app icon (`EguiGlass.icns`, `app-icon.png`) and README logo; keep the
+  crab / copper-and-cyan identity, do not regenerate these programmatically.
 - `examples/demo/src/main.rs` — the demo page, layouts, theme, settings export/import;
   `fonts.rs` — platform UI fonts with egui's as fallback.
 

@@ -1,4 +1,6 @@
-# egui_glass
+<p align="center">
+  <img src="assets/branding/readme-logo.png" alt="egui_glass" width="640">
+</p>
 
 Apple *Liquid Glass* style surfaces for [egui](https://github.com/emilk/egui), rendered on the GPU
 through `egui-wgpu` paint callbacks. One fragment shader does everything: continuous-corner
@@ -43,8 +45,8 @@ make            # release build + Egui Glass.app in target/release/bundle
 make install    # same, then copy the app into /Applications
 ```
 
-The script (`scripts/bundle-macos.sh`) generates the `.icns` from `examples/demo/assets/icon.png`,
-copies the sample photos into the bundle and ad-hoc signs it for local use. `make run`, `make test`
+The script (`scripts/bundle-macos.sh`) uses the app icon from `assets/branding`, copies the sample
+photos into the bundle and ad-hoc signs it for local use. `make run`, `make test`
 and `make lint` wrap the cargo commands.
 
 ## Use the library

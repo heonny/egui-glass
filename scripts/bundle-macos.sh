@@ -3,7 +3,7 @@
 # Build a macOS .app bundle of the egui_glass demo with a generated .icns icon.
 #
 # Usage:
-#   ./scripts/bundle-macos.sh                     # uses examples/demo/assets/icon.png
+#   ./scripts/bundle-macos.sh                     # uses assets/branding/EguiGlass.icns (or app-icon.png)
 #   ./scripts/bundle-macos.sh path/to/icon.png    # custom square PNG (1024x1024 recommended)
 #   ./scripts/bundle-macos.sh --install           # also copy the .app into /Applications
 #
@@ -20,11 +20,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 INSTALL=0
-SRC_ICON="examples/demo/assets/icon.png"
+SRC_ICON="assets/branding/app-icon.png"
+PREBUILT_ICNS="assets/branding/EguiGlass.icns"
 for arg in "$@"; do
   case "$arg" in
     --install) INSTALL=1 ;;
-    *) SRC_ICON="$arg" ;;
+    *) SRC_ICON="$arg"; PREBUILT_ICNS="" ;;
   esac
 done
 APP_DIR="target/release/bundle/$APP_NAME.app"
@@ -34,7 +35,7 @@ APP_DIR="target/release/bundle/$APP_NAME.app"
 for tool in sips iconutil codesign; do
   command -v "$tool" >/dev/null || { echo "error: '$tool' not found" >&2; exit 1; }
 done
-[[ -f "$SRC_ICON" ]] || { echo "error: source icon not found: $SRC_ICON" >&2; exit 1; }
+[[ -f "$PREBUILT_ICNS" || -f "$SRC_ICON" ]] || { echo "error: icon not found: $SRC_ICON" >&2; exit 1; }
 
 VERSION="$(grep '^version' examples/demo/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
 
@@ -42,17 +43,22 @@ VERSION="$(grep '^version' examples/demo/Cargo.toml | head -1 | sed 's/.*"\(.*\)
 echo "==> cargo build --release -p $BIN_NAME"
 cargo build --release -p "$BIN_NAME"
 
-# --- 2. generate AppIcon.icns from the source PNG ------------------------
-echo "==> generating icon from $SRC_ICON"
+# --- 2. AppIcon.icns: use the prebuilt one, else generate from the PNG ---
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-ICONSET="$TMP/AppIcon.iconset"
-mkdir -p "$ICONSET"
-for size in 16 32 128 256 512; do
-  sips -z "$size" "$size"                 "$SRC_ICON" --out "$ICONSET/icon_${size}x${size}.png"    >/dev/null
-  sips -z "$((size * 2))" "$((size * 2))" "$SRC_ICON" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
-done
-iconutil -c icns "$ICONSET" -o "$TMP/AppIcon.icns"
+if [[ -f "$PREBUILT_ICNS" ]]; then
+  echo "==> using $PREBUILT_ICNS"
+  cp "$PREBUILT_ICNS" "$TMP/AppIcon.icns"
+else
+  echo "==> generating icon from $SRC_ICON"
+  ICONSET="$TMP/AppIcon.iconset"
+  mkdir -p "$ICONSET"
+  for size in 16 32 128 256 512; do
+    sips -z "$size" "$size"                 "$SRC_ICON" --out "$ICONSET/icon_${size}x${size}.png"    >/dev/null
+    sips -z "$((size * 2))" "$((size * 2))" "$SRC_ICON" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$ICONSET" -o "$TMP/AppIcon.icns"
+fi
 
 # --- 3. assemble the .app bundle -----------------------------------------
 echo "==> assembling $APP_DIR"
