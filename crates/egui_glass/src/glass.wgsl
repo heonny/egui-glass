@@ -187,11 +187,15 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     col = mix(vec3<f32>(lum), col, u.saturation) * u.brightness;
     col = mix(col, u.tint.rgb, u.tint.a);
 
-    // Specular rim: strong towards the light, faint counter-rim opposite.
+    // Specular rim: a thin bright crescent towards the light and a second, softer
+    // one opposite (light bouncing inside the slab), as on a polished glass edge.
     let ndl = dot(n, u.light_dir);
-    let rim = pow(t, 5.0) * (max(ndl, 0.0) + 0.35 * max(-ndl, 0.0) + 0.08);
+    let rim = pow(t, 7.0) * (0.95 * max(ndl, 0.0) + 0.55 * max(-ndl, 0.0)) + pow(t, 4.0) * 0.06;
     let sheen = 0.05 * (1.0 - clamp((p.y - u.rect_min.y) / max(half.y * 2.0, 1.0), 0.0, 1.0));
     col += vec3<f32>(1.0) * u.specular * (rim + sheen);
+    // A faint dark line at the very edge on the unlit side reads as the slab's thickness
+    // and makes the highlight pop, like the seam of a polished glass rim.
+    col *= 1.0 - 0.18 * u.specular * pow(t, 12.0) * (1.0 - max(ndl, 0.0));
 
     // Thin inner border, brighter on the lit side.
     let ring = 1.0 - smoothstep(0.0, 1.5, abs(d + 0.9));

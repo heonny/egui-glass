@@ -98,11 +98,11 @@ impl log::Log for StderrLogger {
 
 fn main() -> eframe::Result {
     let _ = log::set_logger(&StderrLogger).map(|()| log::set_max_level(log::LevelFilter::Warn));
-    let options = eframe::NativeOptions {
-        renderer: eframe::Renderer::Wgpu,
-        viewport: egui::ViewportBuilder::default().with_inner_size([1180.0, 800.0]).with_title("egui_glass demo"),
-        ..Default::default()
-    };
+    let mut viewport = egui::ViewportBuilder::default().with_inner_size([1180.0, 800.0]).with_title("egui_glass demo");
+    if let Some((x, y)) = std::env::var("LG_POS").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?)))) {
+        viewport = viewport.with_position([x, y]); // dev knob: put the window on a specific display
+    }
+    let options = eframe::NativeOptions { renderer: eframe::Renderer::Wgpu, viewport, ..Default::default() };
     eframe::run_native("egui_glass_demo", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
 }
 

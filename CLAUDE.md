@@ -14,7 +14,8 @@ make bundle | make install                                 # macOS .app via scri
 ```
 
 Screenshot knobs for the demo: `LG_PHOTO=<index>` (initial photo), `LG_SCROLL=<px>` (initial
-scroll offset), `LG_PRESET=dark|clear`, `LG_LIVE=0` (start with the live backdrop off). Launch,
+scroll offset), `LG_PRESET=dark|clear`, `LG_LIVE=0` (start with the live backdrop off),
+`LG_POS=x,y` (window position, e.g. to land on a 2x display for crisp captures). Launch,
 wait for the first frame, then capture the window; a capture taken before the first present is
 blank, so retry rather than assume a bug.
 
@@ -63,8 +64,13 @@ blank, so retry rather than assume a bug.
   product and produced dotted artifacts along the fold axes.
 - Native textures registered in the app's renderer are unknown to the live (twin) renderer; use
   `register_native_texture` / `set_backdrop` so they are mirrored with id remapping.
-- Verify visually after shader or layout changes: capture the demo and inspect the pixels; a CPU
-  replica of the SDF was the fastest way to find the sign bug.
+- Verify visually after shader or layout changes: capture the demo on a 2x display and inspect
+  zoomed crops of a control over a busy photo; a CPU replica of the SDF was the fastest way to
+  find the sign bug.
+- Tuned look (compared against Apple's toolbar/sidebar screenshots): small controls are clear
+  (tint ~44/255 white, blur 8, refraction 18 over a 22 px edge zone, chroma 0.3) with a thin bright
+  rim on the lit edge, a softer one opposite and a faint seam line; panels are frosted (blur 40,
+  tint 130/255, radius 28). Change these only with side-by-side captures.
 
 ## Release
 
