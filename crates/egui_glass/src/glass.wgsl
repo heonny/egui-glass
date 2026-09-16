@@ -23,6 +23,8 @@ struct Uniforms {
     light_dir: vec2<f32>,
     max_lod: f32,
     _pad: f32,
+    corner_a: vec4<f32>,   // p, a, b, c   (smoothed corner, px, see renderer::corner_params)
+    corner_b: vec4<f32>,   // d, r, theta3
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -37,9 +39,72 @@ fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(x, y, 0.0, 1.0);
 }
 
-fn sd_rounded_box(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
-    let q = abs(p) - half + vec2<f32>(r);
-    return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - r;
+const CORNER_SEGMENTS: i32 = 18;
+
+fn bezier(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32) -> vec2<f32> {
+    let u = 1.0 - t;
+    return u * u * u * p0 + 3.0 * u * u * t * p1 + 3.0 * u * t * t * p2 + t * t * t * p3;
+}
+
+// Point `i` (0..=18) of the smoothed corner polyline in the corner's local
+// frame: x along the edge away from the corner, y inward from the edge.
+fn corner_point(i: i32) -> vec2<f32> {
+    let p = u.corner_a.x;
+    let a = u.corner_a.y;
+    let b = u.corner_a.z;
+    let c = u.corner_a.w;
+    let d = u.corner_b.x;
+    let r = u.corner_b.y;
+    let theta3 = u.corner_b.z;
+    let p3 = vec2<f32>(p - a - b - c, d);
+    if (i <= 6) {
+        return bezier(vec2<f32>(p, 0.0), vec2<f32>(p - a, 0.0), vec2<f32>(p - a - b, 0.0), p3, f32(i) / 6.0);
+    } else if (i <= 12) {
+        // Arc around (r, r) from theta3 to its mirror across the diagonal, clockwise.
+        let theta = theta3 - (4.71238898 + 2.0 * theta3) * f32(i - 6) / 6.0;
+        return vec2<f32>(r, r) + r * vec2<f32>(cos(theta), sin(theta));
+    }
+    return bezier(p3.yx, vec2<f32>(0.0, p - a - b), vec2<f32>(0.0, p - a), vec2<f32>(0.0, p), f32(i - 12) / 6.0);
+}
+
+fn seg_dist(q: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
+    let pa = q - a;
+    let ba = b - a;
+    let h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+    return length(pa - ba * h);
+}
+
+// Signed distance to a box with smoothed (continuous) corners, negative inside.
+// Folded into one quadrant; the boundary there is: top edge, corner curve,
+// right edge, walked clockwise so the inside is on the right of each segment.
+fn sd_smooth_box(pos: vec2<f32>, half: vec2<f32>) -> f32 {
+    let q = abs(pos);
+    let p = u.corner_a.x;
+    var best = 1e9;
+    var cross = 0.0;
+    var a = vec2<f32>(0.0, half.y);
+    var b = vec2<f32>(half.x - p, half.y);
+    var d = seg_dist(q, a, b);
+    best = d;
+    cross = (b - a).x * (q - a).y - (b - a).y * (q - a).x;
+    a = b;
+    for (var i = 1; i <= CORNER_SEGMENTS; i++) {
+        let l = corner_point(i);
+        b = vec2<f32>(half.x - l.x, half.y - l.y);
+        d = seg_dist(q, a, b);
+        if (d < best) {
+            best = d;
+            cross = (b - a).x * (q - a).y - (b - a).y * (q - a).x;
+        }
+        a = b;
+    }
+    b = vec2<f32>(half.x, 0.0);
+    d = seg_dist(q, a, b);
+    if (d < best) {
+        best = d;
+        cross = (b - a).x * (q - a).y - (b - a).y * (q - a).x;
+    }
+    return select(best, -best, cross < 0.0);
 }
 
 fn sample_backdrop(p: vec2<f32>, lod: f32) -> vec3<f32> {
@@ -65,14 +130,12 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let p = frag.xy;
     let center = (u.rect_min + u.rect_max) * 0.5;
     let half = (u.rect_max - u.rect_min) * 0.5;
-    let r = min(u.radius, min(half.x, half.y));
-
-    let d = sd_rounded_box(p - center, half, r);
+    let d = sd_smooth_box(p - center, half);
     let mask = 1.0 - smoothstep(-0.5, 0.5, d);
 
     // Shadow (outside the shape only), offset downwards.
     let sh_off = vec2<f32>(0.0, u.shadow_radius * 0.35);
-    let ds = sd_rounded_box(p - center - sh_off, half, r);
+    let ds = sd_smooth_box(p - center - sh_off, half);
     let sh_t = 1.0 - smoothstep(-u.shadow_radius * 0.25, u.shadow_radius, ds);
     let shadow = u.shadow * sh_t * sh_t * (1.0 - mask); // quadratic tail: soft, mostly near the edge
 
@@ -83,8 +146,8 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // Outward normal via finite differences of the SDF.
     let eps = 1.0;
     let n = normalize(vec2<f32>(
-        sd_rounded_box(p - center + vec2<f32>(eps, 0.0), half, r) - sd_rounded_box(p - center - vec2<f32>(eps, 0.0), half, r),
-        sd_rounded_box(p - center + vec2<f32>(0.0, eps), half, r) - sd_rounded_box(p - center - vec2<f32>(0.0, eps), half, r),
+        sd_smooth_box(p - center + vec2<f32>(eps, 0.0), half) - sd_smooth_box(p - center - vec2<f32>(eps, 0.0), half),
+        sd_smooth_box(p - center + vec2<f32>(0.0, eps), half) - sd_smooth_box(p - center - vec2<f32>(0.0, eps), half),
     ) + vec2<f32>(1e-5, 0.0));
 
     // Lens profile: 0 deep inside, 1 at the edge; rounded-glass falloff.

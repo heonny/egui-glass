@@ -32,6 +32,33 @@ struct Uniforms {
     light_dir: [f32; 2],
     max_lod: f32,
     _pad: f32,
+    corner_a: [f32; 4], // p, a, b, c
+    corner_b: [f32; 4], // d, r, theta3, 0
+}
+
+/// Smoothed corner geometry in the corner's local frame (px), following the
+/// corner-smoothing construction: a cubic Bezier from the edge, a circular arc
+/// of radius `r` around the corner centre, and the mirrored Bezier.
+/// Returns `[p, a, b, c, d, r, theta3]` where `theta3` is the arc start angle.
+pub(crate) fn corner_params(radius: f32, smoothing: f32, budget: f32) -> [f32; 7] {
+    let r = radius.clamp(0.0, budget.max(0.0));
+    if r <= 0.0 {
+        return [0.0; 7];
+    }
+    let s = smoothing.clamp(0.0, 1.0).min((budget / r - 1.0).max(0.0));
+    let p = ((1.0 + s) * r).min(budget);
+    let arc_measure = 90.0 * (1.0 - s);
+    let arc_len = (arc_measure / 2.0).to_radians().sin() * r * std::f32::consts::SQRT_2;
+    let alpha = (90.0 - arc_measure) / 2.0;
+    let p3_to_p4 = r * (alpha / 2.0).to_radians().tan();
+    let beta = 45.0 * s;
+    let c = p3_to_p4 * beta.to_radians().cos();
+    let d = c * beta.to_radians().tan();
+    let b = (p - arc_len - c - d) / 3.0;
+    let a = 2.0 * b;
+    let p3 = [p - a - b - c, d];
+    let theta3 = (p3[1] - r).atan2(p3[0] - r);
+    [p, a, b, c, d, r, theta3]
 }
 
 /// GPU state shared by every glass surface. Lives in egui-wgpu's `CallbackResources`.
@@ -237,9 +264,11 @@ impl GlassCallback {
         let px = |r: Rect| ([r.min.x * ppp, r.min.y * ppp], [r.max.x * ppp, r.max.y * ppp]);
         let (rect_min, rect_max) = px(self.rect);
         let (bd_min, bd_max) = px(self.backdrop_rect);
+        let budget = 0.5 * self.rect.width().min(self.rect.height()) * ppp;
+        let corner = corner_params(s.corner_radius * ppp, s.corner_smoothing, budget);
         // Color32 is premultiplied; the shader mixes towards a straight colour.
-        let [r, g, b, a] = s.tint.to_normalized_gamma_f32();
-        let tint = if a > 0.0 { [r / a, g / a, b / a, a] } else { [0.0; 4] };
+        let [tr, tg, tb, ta] = s.tint.to_normalized_gamma_f32();
+        let tint = if ta > 0.0 { [tr / ta, tg / ta, tb / ta, ta] } else { [0.0; 4] };
         let light = egui::vec2(-0.45, -1.0).normalized();
         Uniforms {
             rect_min,
@@ -262,6 +291,8 @@ impl GlassCallback {
             light_dir: [light.x, light.y],
             max_lod,
             _pad: 0.0,
+            corner_a: [corner[0], corner[1], corner[2], corner[3]],
+            corner_b: [corner[4], corner[5], corner[6], 0.0],
         }
     }
 }
@@ -289,5 +320,40 @@ impl CallbackTrait for GlassCallback {
         pass.set_pipeline(&res.pipeline);
         pass.set_bind_group(0, &res.bind_group, &[offset]);
         pass.draw(0..3, 0..1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::corner_params;
+
+    #[test]
+    fn zero_smoothing_is_a_plain_circular_corner() {
+        let [p, a, b, c, d, r, theta3] = corner_params(10.0, 0.0, 100.0);
+        assert_eq!((p, r), (10.0, 10.0));
+        assert!(a.abs() < 1e-4 && b.abs() < 1e-4 && c.abs() < 1e-4 && d.abs() < 1e-4);
+        assert!((theta3 + std::f32::consts::FRAC_PI_2).abs() < 1e-4); // arc starts straight below the centre
+    }
+
+    #[test]
+    fn full_smoothing_spans_twice_the_radius_and_meets_on_the_diagonal() {
+        let [p, a, b, c, d, r, theta3] = corner_params(10.0, 1.0, 100.0);
+        assert!((p - 20.0).abs() < 1e-4);
+        let p3 = [p - a - b - c, d];
+        assert!((p3[0] - p3[1]).abs() < 1e-3, "arc collapses to a point on the diagonal");
+        assert!(((p3[0] - r).hypot(p3[1] - r) - r).abs() < 1e-3, "p3 lies on the corner circle");
+        assert!((theta3 + 3.0 * std::f32::consts::FRAC_PI_4).abs() < 1e-3);
+    }
+
+    #[test]
+    fn smoothing_above_one_is_clamped() {
+        assert_eq!(corner_params(10.0, 5.0, 100.0), corner_params(10.0, 1.0, 100.0));
+    }
+
+    #[test]
+    fn radius_and_smoothing_are_capped_by_the_budget() {
+        let [p, _, _, _, _, r, _] = corner_params(50.0, 0.6, 20.0);
+        assert_eq!(r, 20.0);
+        assert!(p <= 20.0 + 1e-4);
     }
 }

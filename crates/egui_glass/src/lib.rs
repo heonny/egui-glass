@@ -24,7 +24,7 @@ mod renderer;
 mod style;
 mod widgets;
 
-pub use backdrop::{backdrop_rect, set_backdrop, show_backdrop};
+pub use backdrop::{backdrop_rect, backdrop_size, set_backdrop, show_backdrop, show_backdrop_mapped};
 pub use renderer::init;
 pub use style::GlassStyle;
 pub use widgets::{paint_glass, Glass, GlassButton, GlassToolbar};

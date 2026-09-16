@@ -5,6 +5,10 @@ use egui::Color32;
 pub struct GlassStyle {
     /// Corner radius. Use [`f32::INFINITY`] for a capsule.
     pub corner_radius: f32,
+    /// Continuous-corner smoothing, 0 = circular arc, 1 = fully smoothed.
+    /// 0.6 matches the look of iOS continuous corners. Same model as Figma's
+    /// corner smoothing: the transition spans `(1 + smoothing) * radius`.
+    pub corner_smoothing: f32,
     /// Backdrop blur radius.
     pub blur: f32,
     /// Maximum displacement of the backdrop at the edge (lens effect).
@@ -40,6 +44,7 @@ impl GlassStyle {
     pub const fn regular() -> Self {
         Self {
             corner_radius: 22.0,
+            corner_smoothing: 0.6,
             blur: 12.0,
             refraction: 14.0,
             edge_width: 26.0,

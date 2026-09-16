@@ -81,14 +81,24 @@ pub fn set_backdrop(ctx: &Context, render_state: &RenderState, image: &ColorImag
 /// Draws the backdrop image covering `rect` (aspect-fill, centered) and records
 /// the mapping so glass widgets sample the same pixels.
 pub fn show_backdrop(ui: &mut Ui, rect: Rect) {
-    let Some(mut state) = backdrop_state(ui.ctx()) else { return };
+    let Some(state) = backdrop_state(ui.ctx()) else { return };
     let scale = (rect.width() / state.size.x).max(rect.height() / state.size.y);
-    let full = Rect::from_center_size(rect.center(), state.size * scale);
-    state.rect = full;
-    ui.ctx().data_mut(|d| d.insert_temp(state_id(), state));
+    show_backdrop_mapped(ui, Rect::from_center_size(rect.center(), state.size * scale), rect);
+}
 
-    let painter = ui.painter().with_clip_rect(rect);
-    painter.image(state.texture, full, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+/// Draws the whole backdrop image into `image_rect` (clipped to `clip`) and
+/// records that mapping. Use this when you place the image yourself.
+pub fn show_backdrop_mapped(ui: &mut Ui, image_rect: Rect, clip: Rect) {
+    let Some(mut state) = backdrop_state(ui.ctx()) else { return };
+    state.rect = image_rect;
+    ui.ctx().data_mut(|d| d.insert_temp(state_id(), state));
+    let painter = ui.painter().with_clip_rect(clip);
+    painter.image(state.texture, image_rect, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+}
+
+/// Pixel size of the registered backdrop image.
+pub fn backdrop_size(ctx: &Context) -> Option<Vec2> {
+    backdrop_state(ctx).map(|s| s.size)
 }
 
 /// Box-filtered mip chain: (width, height, rgba bytes) per level.
