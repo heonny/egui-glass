@@ -1,37 +1,84 @@
 # egui_glass
 
 Apple *Liquid Glass* style surfaces for [egui](https://github.com/emilk/egui), rendered on the GPU
-through `egui-wgpu` paint callbacks. One fragment shader does everything: rounded-rect SDF,
-edge refraction (lensing) with optional chromatic aberration, mip-based backdrop blur,
-tint / vibrancy, specular rim, inner border and drop shadow. No animation, no dependencies
-beyond `egui`, `egui-wgpu`, `wgpu`, `bytemuck`.
+through `egui-wgpu` paint callbacks. One fragment shader does everything: continuous-corner
+signed-distance shape, edge refraction (lensing) with optional chromatic aberration, mip-based
+backdrop blur, tint / vibrancy, specular rim, inner border and drop shadow. No animation.
 
 ![demo](docs/demo.png)
 
-## Usage
+## Requirements
+
+| | |
+|---|---|
+| Rust | 1.92 or newer (MSRV of `eframe` / `wgpu`) |
+| Backend | `eframe` with the **wgpu** renderer (`egui-wgpu`); the glow backend is not supported |
+| GPU | anything wgpu drives: Metal, Vulkan, DX12 (the demo was developed on macOS) |
+
+Runtime dependencies of the library: `egui`, `egui-wgpu`, `wgpu`, `bytemuck`, and `serde`
+(optional, feature `serde`). The demo additionally uses `eframe`, `image`, `serde_json`, `rfd`
+and `log`.
+
+## Run the demo
+
+```bash
+git clone https://github.com/heonny/egui-glass.git
+cd egui-glass
+cargo run -p egui_glass_demo
+```
+
+The first build compiles wgpu and takes a few minutes. Left panel: sliders for every style
+parameter, the presets (Regular, Clear, Dark, Panel), a *Live backdrop* toggle, and Export /
+Import buttons that save the settings as JSON. A dark tint switches the page to a macOS-style dark
+theme. Sidebar items switch between the bundled photos (`examples/asset`); drop an image file onto
+the window to load your own. Drag the glass panels around.
+
+Environment knobs for screenshots: `LG_PHOTO=<index>`, `LG_SCROLL=<px>`, `LG_PRESET=dark|clear`,
+`LG_LIVE=0` (start with the live backdrop off).
+
+### macOS app
+
+```bash
+make            # release build + Egui Glass.app in target/release/bundle
+make install    # same, then copy the app into /Applications
+```
+
+The script (`scripts/bundle-macos.sh`) generates the `.icns` from `examples/demo/assets/icon.png`,
+copies the sample photos into the bundle and ad-hoc signs it for local use. `make run`, `make test`
+and `make lint` wrap the cargo commands.
+
+## Use the library
+
+```toml
+[dependencies]
+egui_glass = { git = "https://github.com/heonny/egui-glass.git" }   # not on crates.io yet
+```
 
 ```rust
+use egui_glass::{Glass, GlassButton, GlassStyle, GlassToolbar};
+
 // once, e.g. in App::new (eframe with the wgpu backend)
 let rs = cc.wgpu_render_state.as_ref().unwrap();
 egui_glass::init(rs, 1 /* msaa samples */);
 egui_glass::set_backdrop(&cc.egui_ctx, rs, &wallpaper_color_image);
 
 // every frame
-egui_glass::show_backdrop(ui, ui.max_rect());   // draws the wallpaper (aspect-fill), records its mapping
+egui_glass::show_backdrop(ui, ui.max_rect());          // draws the wallpaper (aspect-fill), records its mapping
 // or place the image yourself; glass outside it shows `page_color`:
-// show_backdrop_mapped(ui, image_rect, clip_rect, page_color)
+// egui_glass::show_backdrop_mapped(ui, image_rect, clip_rect, page_color)
 
-let style = GlassStyle::regular();                      // or ::clear(), ::dark(), or tweak fields
+let style = GlassStyle::regular();                      // ::clear(), ::dark(), ::panel(), ::panel_dark()
 Glass::new(style).show(ui, |ui| { ui.label("card / section / sidebar"); });
 GlassButton::new("Continue").style(style).show(ui);
 GlassToolbar::new(style).show(ui, |ui| { ui.button("↩"); ui.button("🗑"); });
-paint_glass(ui, rect, &style);                          // building block for your own widgets
+egui_glass::paint_glass(ui, rect, &style);              // building block for your own widgets
 ```
 
 `GlassStyle` fields (all in logical points): `corner_radius` (`f32::INFINITY` = capsule),
 `corner_smoothing` (0 = circular arc, 0.6 = the continuous look of iOS corners, 1 = max), `blur`,
 `refraction`, `edge_width`, `chromatic`, `tint`, `brightness`, `saturation`, `specular`, `border`,
-`shadow`, `shadow_radius`.
+`shadow`, `shadow_radius`. Use `panel()` for large surfaces (sidebars, sheets): heavy blur, almost
+no lensing. Text on glass picks a light colour automatically when the tint is dark.
 
 Corners use the corner-smoothing model popularised by Figma (a Bezier ease into a shorter circular
 arc, spanning `(1 + smoothing) * radius` along each edge), evaluated as a signed-distance field in
@@ -44,6 +91,9 @@ widget in the same frame. By default glass therefore refracts a **backdrop image
 with `set_backdrop` (a wallpaper, a photo) and place with `show_backdrop`; anything egui draws on
 top of it shows as the page colour through the glass. This is cheap and matches Apple's guidance
 that glass floats above content and is never stacked on glass.
+
+Each glass surface costs one draw call (a single triangle) and one 256-byte uniform slot; the
+backdrop is uploaded once with a linear-light mip chain, and blur is a 5-tap sample at a mip level.
 
 ### Live backdrop (optional)
 
@@ -63,23 +113,14 @@ Glass::new(style).show(ui, |ui| { /* floats over the page */ });
 Images drawn inside the content must be registered with `egui_glass::register_native_texture`
 (or `set_backdrop`) so the off-screen pass can draw them too.
 
-Each glass surface costs one draw call (a single triangle) and one 256-byte uniform slot; the
-backdrop is uploaded once with a CPU-generated mip chain, and blur is a 5-tap sample at a mip level.
-
-## Demo
+## Development
 
 ```bash
-cargo run -p egui_glass_demo
+cargo test --workspace --all-features
+cargo clippy --workspace --all-targets --all-features
 ```
 
-Left panel: sliders for every style parameter and the presets (Regular, Clear, Dark, Panel). A
-dark tint switches the whole page to a macOS-style dark theme. The demo loads the platform UI font
-(SF Pro / Apple SD Gothic Neo on macOS, Segoe UI / Malgun Gothic on Windows) with egui's bundled
-fonts as fallback. Drop an image file on the
-window to change the photo; drag the glass panels around. Sidebar items switch between the photos
-in `examples/asset`; portrait photos are laid out as a tall column on the right, landscape ones
-across the top. The page scrolls under the floating glass, so the sidebar shows the photo flowing
-beneath it; outside the photo the glass shows the page colour.
+See `CLAUDE.md` for the project layout and the design rules the code follows.
 
 ## Trademark note
 
@@ -89,4 +130,4 @@ descriptively in this documentation.
 
 ## License
 
-MIT OR Apache-2.0
+MIT. See [LICENSE](LICENSE).
