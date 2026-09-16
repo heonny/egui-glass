@@ -29,7 +29,8 @@ cd egui-glass
 cargo run -p egui_glass_demo
 ```
 
-The first build compiles wgpu and takes a few minutes. Left panel: sliders for every style
+The first build compiles wgpu and takes a few minutes. To package it as a macOS app see
+[Build the macOS app](#build-the-macos-app). Left panel: sliders for every style
 parameter, the presets (Regular, Clear, Dark, Panel), a *Live backdrop* toggle, and Export /
 Import buttons that save the settings as JSON. A dark tint switches the page to a macOS-style dark
 theme. Sidebar items switch between the bundled photos (`examples/asset`); drop an image file onto
@@ -38,52 +39,114 @@ the window to load your own. Drag the glass panels around.
 Environment knobs for screenshots: `LG_PHOTO=<index>`, `LG_SCROLL=<px>`, `LG_PRESET=dark|clear`,
 `LG_LIVE=0` (start with the live backdrop off).
 
-### macOS app
+## Build the macOS app
+
+The demo can be packaged as a regular `.app` (Dock icon, Launchpad, Finder):
+
+| Command | What it does |
+|---|---|
+| `make` / `make bundle` | release build, `Egui Glass.app` in `target/release/bundle` |
+| `make install` | same, then replaces `/Applications/Egui Glass.app` |
+| `make run` / `make test` / `make lint` | `cargo run -p egui_glass_demo`, tests, clippy |
+
+`scripts/bundle-macos.sh` does the work: uses the icon from `assets/branding` (the prebuilt
+`EguiGlass.icns`, or generates one from a 1024 px PNG you pass as an argument), copies the sample
+photos into `Contents/Resources/asset`, writes `Info.plist`, ad-hoc signs the bundle and, with
+`--install`, copies it to `/Applications` and strips any quarantine flag. It needs `sips`,
+`iconutil` and `codesign`, all part of macOS.
+
+On the first launch from Finder, macOS shows *"Apple could not verify ... is free of malware"*
+because the app is not notarized: open *System Settings > Privacy & Security* and click
+*Open Anyway* once. To ship a build that opens without the prompt, sign with a Developer ID and
+notarize:
 
 ```bash
-make            # release build + Egui Glass.app in target/release/bundle
-make install    # same, then copy the app into /Applications
+CODESIGN_IDENTITY="Developer ID Application: <name> (<team id>)" \
+NOTARY_PROFILE="<keychain profile from: xcrun notarytool store-credentials>" \
+make install
 ```
 
-The script (`scripts/bundle-macos.sh`) uses the app icon from `assets/branding`, copies the sample
-photos into the bundle and ad-hoc signs it for local use. On first launch from Finder, macOS shows
-"Apple could not verify ... is free of malware": open *System Settings > Privacy & Security* and
-click *Open Anyway* once. For a build that launches without the prompt, sign with a Developer ID
-and notarize by setting `CODESIGN_IDENTITY` (and optionally `NOTARY_PROFILE`) before `make install`. `make run`, `make test`
-and `make lint` wrap the cargo commands.
+Uninstall by deleting `/Applications/Egui Glass.app`; the app stores nothing else.
 
-## Use the library
+## Use the library in your own app
+
+You do not need this repository checked out; add the crate as a git dependency (pin a `rev` or
+`tag` for reproducible builds) and make sure `eframe` uses the wgpu backend:
 
 ```toml
 [dependencies]
-egui_glass = { git = "https://github.com/heonny/egui-glass.git" }   # not on crates.io yet
+eframe = { version = "0.35", default-features = false, features = ["default_fonts", "wgpu"] }
+egui = "0.35"
+egui_glass = { git = "https://github.com/heonny/egui-glass.git" }            # not on crates.io yet
+# egui_glass = { git = "...", features = ["serde"] }   # GlassStyle: Serialize / Deserialize
 ```
+
+Minimal app: register the pipeline and a backdrop once, then draw glass wherever you like.
 
 ```rust
+use eframe::egui;
 use egui_glass::{Glass, GlassButton, GlassStyle, GlassToolbar};
 
-// once, e.g. in App::new (eframe with the wgpu backend)
-let rs = cc.wgpu_render_state.as_ref().unwrap();
-egui_glass::init(rs, 1 /* msaa samples */);
-egui_glass::set_backdrop(&cc.egui_ctx, rs, &wallpaper_color_image);
+struct App;
 
-// every frame
-egui_glass::show_backdrop(ui, ui.max_rect());          // draws the wallpaper (aspect-fill), records its mapping
-// or place the image yourself; glass outside it shows `page_color`:
-// egui_glass::show_backdrop_mapped(ui, image_rect, clip_rect, page_color)
+impl App {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let rs = cc.wgpu_render_state.as_ref().expect("eframe must use the wgpu renderer");
+        egui_glass::init(rs, 1);                                   // msaa samples of NativeOptions
+        let wallpaper = egui::ColorImage::filled([256, 256], egui::Color32::from_rgb(70, 130, 180));
+        egui_glass::set_backdrop(&cc.egui_ctx, rs, &wallpaper);    // any ColorImage: photo, gradient, ...
+        Self
+    }
+}
 
-let style = GlassStyle::regular();                      // ::clear(), ::dark(), ::panel(), ::panel_dark()
-Glass::new(style).show(ui, |ui| { ui.label("card / section / sidebar"); });
-GlassButton::new("Continue").style(style).show(ui);
-GlassToolbar::new(style).show(ui, |ui| { ui.button("↩"); ui.button("🗑"); });
-egui_glass::paint_glass(ui, rect, &style);              // building block for your own widgets
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
+            egui_glass::show_backdrop(ui, ui.max_rect());          // draw the backdrop, record where it is
+            let style = GlassStyle::regular();
+            egui::Area::new(egui::Id::new("card")).movable(true).constrain(false).show(ui.ctx(), |ui| {
+                Glass::new(style).show(ui, |ui| {
+                    ui.heading("Hello glass");
+                    GlassButton::new("Continue").style(style).show(ui);
+                });
+            });
+            egui::Area::new(egui::Id::new("bar")).movable(true).constrain(false).show(ui.ctx(), |ui| {
+                GlassToolbar::new(style).show(ui, |ui| {
+                    let _ = ui.button("Undo");
+                    let _ = ui.button("Share");
+                });
+            });
+        });
+    }
+}
+
+fn main() -> eframe::Result {
+    let options = eframe::NativeOptions { renderer: eframe::Renderer::Wgpu, ..Default::default() };
+    eframe::run_native("glass", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
+}
 ```
+
+API at a glance:
+
+| | |
+|---|---|
+| `init(render_state, msaa)` | once; installs the wgpu pipeline |
+| `set_backdrop(ctx, rs, &ColorImage)` | upload / replace the image glass refracts |
+| `show_backdrop(ui, rect)` | draw it aspect-filled in `rect` and record the mapping |
+| `show_backdrop_mapped(ui, image_rect, clip, outside)` | place it yourself; `outside` is what glass shows beyond it |
+| `Glass::new(style).inner_margin(..).show(ui, ..)` | card / section / sidebar container |
+| `GlassButton::new(text).style(..).icon().show(ui)` | capsule or round button |
+| `GlassToolbar::new(style).show(ui, ..)` | capsule bar of flat buttons |
+| `paint_glass(ui, rect, &style)` | just the surface, for custom widgets |
+| `LiveBackdrop::new(rs, fonts)` / `.run(ui, page_color, ..)` | glass refracts live content, see below |
+| `register_native_texture(rs, &view)` | egui texture id usable in both normal and live passes |
 
 `GlassStyle` fields (all in logical points): `corner_radius` (`f32::INFINITY` = capsule),
 `corner_smoothing` (0 = circular arc, 0.6 = the continuous look of iOS corners, 1 = max), `blur`,
 `refraction`, `edge_width`, `chromatic`, `tint`, `brightness`, `saturation`, `specular`, `border`,
-`shadow`, `shadow_radius`. Use `panel()` for large surfaces (sidebars, sheets): heavy blur, almost
-no lensing. Text on glass picks a light colour automatically when the tint is dark.
+`shadow`, `shadow_radius`. Presets: `regular()`, `clear()`, `dark()`, `panel()`, `panel_dark()`.
+Use `panel()` for large surfaces (sidebars, sheets): heavy blur, almost no lensing. Text on glass
+picks a light colour automatically when the tint is dark.
 
 Corners use the corner-smoothing model popularised by Figma (a Bezier ease into a shorter circular
 arc, spanning `(1 + smoothing) * radius` along each edge), evaluated as a signed-distance field in
