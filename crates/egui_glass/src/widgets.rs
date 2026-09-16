@@ -26,9 +26,9 @@ fn expand_margin(rect: Rect, m: Margin, sign: f32) -> Rect {
 /// Flat widget visuals for controls sitting on glass: transparent idle
 /// background, soft translucent highlight, capsule corners, no strokes.
 /// Apple never stacks glass on glass.
-fn flat_visuals(ui: &mut Ui) {
-    let highlight = Color32::from_white_alpha(70);
-    let fg = ui.visuals().strong_text_color();
+fn flat_visuals(ui: &mut Ui, style: &GlassStyle) {
+    let highlight = if style.is_dark() { Color32::from_white_alpha(36) } else { Color32::from_white_alpha(70) };
+    let fg = text_color(ui, style);
     let widgets = &mut ui.style_mut().visuals.widgets;
     for w in [&mut widgets.inactive, &mut widgets.hovered, &mut widgets.active, &mut widgets.open] {
         w.bg_stroke = egui::Stroke::NONE;
@@ -42,8 +42,13 @@ fn flat_visuals(ui: &mut Ui) {
     widgets.hovered.bg_fill = highlight;
     widgets.active.weak_bg_fill = highlight.gamma_multiply(1.6);
     widgets.active.bg_fill = highlight.gamma_multiply(1.6);
-    ui.style_mut().visuals.selection.bg_fill = Color32::from_white_alpha(110);
+    ui.style_mut().visuals.selection.bg_fill = if style.is_dark() { Color32::from_white_alpha(56) } else { Color32::from_white_alpha(110) };
     ui.style_mut().visuals.selection.stroke.color = fg;
+}
+
+/// Text colour that reads on this glass: light on dark tints, else the theme's strong text.
+fn text_color(ui: &Ui, style: &GlassStyle) -> Color32 {
+    if style.is_dark() { Color32::WHITE } else { ui.visuals().strong_text_color() }
 }
 
 /// A glass container: card, section, sidebar, sheet.
@@ -66,7 +71,7 @@ impl Glass {
         let background = ui.painter().add(Shape::Noop);
         let max_rect = expand_margin(ui.available_rect_before_wrap(), self.inner_margin, -1.0);
         let mut content = ui.new_child(egui::UiBuilder::new().max_rect(max_rect));
-        flat_visuals(&mut content);
+        flat_visuals(&mut content, &self.style);
         let inner = add_contents(&mut content);
         let rect = expand_margin(content.min_rect(), self.inner_margin, 1.0);
         ui.painter().set(background, glass_shape(ui, rect, &self.style));
@@ -129,7 +134,7 @@ impl GlassButton {
                 self.style
             };
             paint_glass(ui, rect, &style);
-            let color = self.text_color.unwrap_or_else(|| ui.visuals().strong_text_color());
+            let color = self.text_color.unwrap_or_else(|| text_color(ui, &style));
             let pos = rect.center() - galley.size() / 2.0;
             ui.painter().galley(pos, galley, color);
         }

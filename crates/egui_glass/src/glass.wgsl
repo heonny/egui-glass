@@ -112,21 +112,24 @@ fn sd_smooth_box(pos: vec2<f32>, half: vec2<f32>) -> f32 {
     return select(n.dist, -n.dist, n.cross < 0.0);
 }
 
-// One backdrop tap; outside the image it returns the fill colour.
-fn tap(uv: vec2<f32>, lod: f32) -> vec3<f32> {
-    let inside = f32(all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0)));
+// One backdrop tap at a screen position (px). Beyond the image it fades to the
+// fill colour over the blur radius, so a blurred image edge stays smooth.
+fn tap(p: vec2<f32>, lod: f32) -> vec3<f32> {
+    let uv = (p - u.bd_min) / (u.bd_max - u.bd_min);
+    let edge = min(min(p.x - u.bd_min.x, u.bd_max.x - p.x), min(p.y - u.bd_min.y, u.bd_max.y - p.y));
+    let r = max(u.blur * 0.5, 0.5);
+    let inside = smoothstep(-r, r, edge);
     return mix(u.fill.rgb, textureSampleLevel(bd_tex, bd_samp, uv, lod).rgb, inside);
 }
 
 fn sample_backdrop(p: vec2<f32>, lod: f32) -> vec3<f32> {
-    let uv = (p - u.bd_min) / (u.bd_max - u.bd_min);
     // 5-tap rotated cross on top of the mip level to hide box artifacts.
-    let s = max(u.blur, 0.0) * 0.5 / (u.bd_max - u.bd_min);
-    let c = tap(uv, lod);
-    let a = tap(uv + vec2<f32>( s.x,  s.y * 0.5), lod);
-    let b = tap(uv + vec2<f32>(-s.x, -s.y * 0.5), lod);
-    let d = tap(uv + vec2<f32>( s.x * 0.5, -s.y), lod);
-    let e = tap(uv + vec2<f32>(-s.x * 0.5,  s.y), lod);
+    let s = max(u.blur, 0.0) * 0.5;
+    let c = tap(p, lod);
+    let a = tap(p + vec2<f32>( s,  s * 0.5), lod);
+    let b = tap(p + vec2<f32>(-s, -s * 0.5), lod);
+    let d = tap(p + vec2<f32>( s * 0.5, -s), lod);
+    let e = tap(p + vec2<f32>(-s * 0.5,  s), lod);
     return (c * 2.0 + a + b + d + e) / 6.0;
 }
 

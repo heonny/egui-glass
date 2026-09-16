@@ -1,3 +1,5 @@
+mod fonts;
+
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Color32, ColorImage, Rect, Vec2};
@@ -5,7 +7,9 @@ use egui_glass::{Glass, GlassButton, GlassStyle, GlassToolbar};
 
 const MAX_PHOTO_SIZE: u32 = 1600;
 const SIDEBAR_WIDTH: f32 = 210.0;
+/// Page colours: macOS/iOS light and dark system backgrounds.
 const PAPER: Color32 = Color32::from_rgb(250, 250, 252);
+const PAPER_DARK: Color32 = Color32::from_rgb(28, 28, 30);
 
 /// Text shown for a bundled photo, matched by a substring of its file name.
 struct Caption {
@@ -83,6 +87,8 @@ struct App {
     style: GlassStyle,
     selected: usize,
     photos: Vec<PathBuf>,
+    /// Theme the visuals were last built for.
+    dark: bool,
     caption: &'static Caption,
     /// Pane rect of the previous frame; floating glass is re-anchored when it changes.
     last_pane: Rect,
@@ -95,7 +101,7 @@ struct App {
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        cc.egui_ctx.set_visuals(egui::Visuals::light());
+        cc.egui_ctx.set_fonts(fonts::system_fonts());
         let rs = cc.wgpu_render_state.as_ref().expect("demo requires the wgpu backend");
         egui_glass::init(rs, 1);
         let mut photos: Vec<PathBuf> = std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../asset"))
@@ -103,7 +109,13 @@ impl App {
             .unwrap_or_default();
         photos.sort();
         let selected = std::env::var("LG_PHOTO").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-        let mut app = Self { style: GlassStyle::regular(), selected, photos, caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
+        let style = match std::env::var("LG_PRESET").as_deref() {
+            Ok("dark") => GlassStyle::dark(),
+            Ok("clear") => GlassStyle::clear(),
+            _ => GlassStyle::regular(),
+        };
+        let mut app = Self { style, selected, photos, dark: style.is_dark(), caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
+        app.apply_visuals(&cc.egui_ctx);
         if let Some(path) = app.photos.get(selected).cloned() {
             app.load_photo(&cc.egui_ctx, rs, &path);
         }
@@ -116,9 +128,39 @@ impl App {
                 let photo = img.thumbnail(MAX_PHOTO_SIZE, MAX_PHOTO_SIZE).to_rgba8();
                 self.portrait = photo.height() > photo.width();
                 self.caption = caption_for(path);
-                egui_glass::set_backdrop(ctx, rs, &compose_backdrop(&photo, self.portrait));
+                let image = ColorImage::from_rgba_unmultiplied([photo.width() as usize, photo.height() as usize], &photo);
+                egui_glass::set_backdrop(ctx, rs, &image);
             }
             Err(err) => eprintln!("failed to load {}: {err}", path.display()),
+        }
+    }
+
+    fn paper(&self) -> Color32 {
+        if self.dark { PAPER_DARK } else { PAPER }
+    }
+
+    /// Light or dark theme following the glass tint, with macOS-like colours.
+    /// The theme is forced (not the system one) so `set_visuals_of` lands on the theme in use.
+    fn apply_visuals(&self, ctx: &egui::Context) {
+        let (theme, mut visuals) = if self.dark {
+            (egui::Theme::Dark, egui::Visuals::dark())
+        } else {
+            (egui::Theme::Light, egui::Visuals::light())
+        };
+        if self.dark {
+            visuals.panel_fill = PAPER_DARK;
+            visuals.window_fill = PAPER_DARK;
+            visuals.widgets.noninteractive.fg_stroke.color = Color32::from_rgb(229, 229, 234);
+        }
+        ctx.set_theme(theme);
+        ctx.set_visuals_of(theme, visuals);
+    }
+
+    /// Flip the theme when the glass tint crosses from light to dark or back.
+    fn sync_theme(&mut self, ctx: &egui::Context) {
+        if self.dark != self.style.is_dark() {
+            self.dark = self.style.is_dark();
+            self.apply_visuals(ctx);
         }
     }
 
@@ -130,7 +172,7 @@ impl App {
 
     fn controls(&mut self, ui: &mut egui::Ui) {
         ui.heading("egui_glass");
-        ui.label("Sliders drive the buttons, toolbar and back button. The sidebar uses the fixed flat `GlassStyle::panel()`.");
+        ui.label("Sliders drive the buttons, toolbar and back button. The sidebar always uses the flat panel preset; a dark tint switches the whole page to dark mode.");
         ui.label("Sidebar items switch the photo; drop an image onto the window to load your own. Drag the glass panels around.");
         ui.add_space(8.0);
         ui.horizontal(|ui| {
@@ -171,6 +213,7 @@ impl App {
         let pane = ui.max_rect();
         let Some(size) = egui_glass::backdrop_size(ui.ctx()).filter(|s| s.x > 0.0 && s.y > 0.0) else { return };
         let portrait = self.portrait;
+        let paper_color = self.paper();
 
         // Everything except the floating glass scrolls, so the backdrop moves under the sidebar.
         let mut scroll = egui::ScrollArea::vertical().auto_shrink(false);
@@ -191,31 +234,25 @@ impl App {
             .show(ui, |ui| {
                 let top = ui.max_rect().min;
                 let width = ui.available_width();
-                // The photo is half of the composed image along the extension axis.
-                let (image_rect, photo_rect, paper) = if portrait {
+                // Everything that is not the photo is plain paper, on screen and for the glass alike.
+                let photo_rect = if portrait {
                     // Tall photo fills the viewport height on the right; the article gets the rest.
                     let scale = pane.height() / size.y;
-                    let photo_w = size.x / 2.0 * scale;
-                    let column = (width - photo_w).max(200.0);
-                    let image = Rect::from_min_size(egui::pos2(top.x + column - photo_w, top.y), size * scale);
-                    let photo = Rect::from_min_max(egui::pos2(top.x + column, top.y), image.max);
-                    (image, photo, Rect::from_min_max(top, egui::pos2(top.x + column, top.y + 4.0 * pane.height())))
+                    let column = (width - size.x * scale).max(200.0);
+                    Rect::from_min_size(egui::pos2(top.x + column, top.y), size * scale)
                 } else {
-                    let scale = width / size.x;
-                    let image = Rect::from_min_size(top, size * scale);
-                    let photo = Rect::from_min_max(top, egui::pos2(image.max.x, image.center().y));
-                    (image, photo, Rect::from_min_max(egui::pos2(top.x, photo.max.y), egui::pos2(image.max.x, top.y + 4.0 * pane.height())))
+                    Rect::from_min_size(top, size * (width / size.x))
                 };
-                ui.painter().rect_filled(Rect::from_min_max(top, egui::pos2(top.x + width, paper.max.y)), 0.0, PAPER);
-                egui_glass::show_backdrop_mapped(ui, image_rect, pane, PAPER);
-                ui.painter().rect_filled(paper, 0.0, PAPER.gamma_multiply(0.93));
+                ui.painter().rect_filled(Rect::from_min_size(top, Vec2::new(width, 4.0 * pane.height())), 0.0, paper_color);
+                egui_glass::show_backdrop_mapped(ui, photo_rect, pane, paper_color);
 
                 let (left, column_w, top_space) = if portrait {
-                    (24.0, paper.width() - 48.0, 200.0)
+                    (24.0, photo_rect.min.x - top.x - 48.0, 200.0)
                 } else {
                     ui.add_space(photo_rect.height());
                     (SIDEBAR_WIDTH + 48.0, width - SIDEBAR_WIDTH - 48.0 - 280.0, 20.0)
                 };
+                let column_w = column_w.max(120.0); // narrow windows: keep the layout valid
                 ui.horizontal(|ui| {
                     ui.add_space(left);
                     ui.vertical(|ui| {
@@ -243,12 +280,12 @@ impl App {
 
         area("sidebar", pane.min + Vec2::splat(16.0)).show(ui.ctx(), |ui| {
             ui.set_width(SIDEBAR_WIDTH);
-            Glass::new(GlassStyle::panel()).inner_margin(egui::Margin::symmetric(14, 16)).show(ui, |ui| {
+            Glass::new(if self.dark { GlassStyle::panel_dark() } else { GlassStyle::panel() }).inner_margin(egui::Margin::symmetric(14, 16)).show(ui, |ui| {
                 ui.set_width(SIDEBAR_WIDTH - 28.0);
                 if !portrait {
                     ui.set_min_height(pane.height() - 64.0);
                 }
-                ui.label(egui::RichText::new("▤").size(18.0));
+                sidebar_icon(ui);
                 ui.add_space(10.0);
                 for i in 0..self.photos.len() {
                     let item = caption_for(&self.photos[i]).item;
@@ -293,6 +330,7 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.sync_theme(ui.ctx());
         self.handle_drop(ui.ctx(), frame);
         egui::Panel::left("controls").exact_size(280.0).show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| self.controls(ui));
@@ -301,39 +339,11 @@ impl eframe::App for App {
     }
 }
 
-/// The photo plus an equally sized "background extension" on one side
-/// (below for landscape, left for portrait): the photo mirrored across that
-/// edge, heavily blurred and faded into paper white, so glass over the
-/// content area shows only a soft colour wash.
-fn compose_backdrop(photo: &image::RgbaImage, portrait: bool) -> ColorImage {
-    use image::imageops::{resize, FilterType};
-    let (w, h) = (photo.width(), photo.height());
-    let soft = resize(&resize(photo, (w / 24).max(1), (h / 24).max(1), FilterType::Triangle), w, h, FilterType::Triangle);
-    let (out_w, out_h) = if portrait { (2 * w, h) } else { (w, 2 * h) };
-    let paper = [PAPER.r() as f32, PAPER.g() as f32, PAPER.b() as f32];
-    let mut pixels = Vec::with_capacity((out_w * out_h) as usize);
-    for y in 0..out_h {
-        for x in 0..out_w {
-            // Distance into the extension (0 = still on the photo) and the source pixel
-            // mirrored across the seam: portrait extension is x < w, landscape is y >= h.
-            let (dist, sx, sy) = if portrait {
-                (w.saturating_sub(x), (w - 1).saturating_sub(x), y)
-            } else {
-                (y.saturating_sub(h - 1), x, (2 * h - 1).saturating_sub(y))
-            };
-            let px = if dist == 0 {
-                let p = photo.get_pixel(if portrait { x - w } else { x }, y).0;
-                Color32::from_rgb(p[0], p[1], p[2])
-            } else {
-                let p = soft.get_pixel(sx, sy).0;
-                let extent = if portrait { w } else { h } as f32;
-                let fade = (dist as f32 / (extent * 0.2)).min(1.0); // 0 at the seam -> 1 after 20 %
-                let paper_amount = 0.6 + 0.3 * fade;
-                let mix = |c: u8, paper: f32| (c as f32 * (1.0 - paper_amount) + paper * paper_amount) as u8;
-                Color32::from_rgb(mix(p[0], paper[0]), mix(p[1], paper[1]), mix(p[2], paper[2]))
-            };
-            pixels.push(px);
-        }
-    }
-    ColorImage::new([out_w as usize, out_h as usize], pixels)
+/// Apple-style "toggle sidebar" glyph: a rounded rectangle with a divider.
+fn sidebar_icon(ui: &mut egui::Ui) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(20.0, 16.0), egui::Sense::hover());
+    let stroke = egui::Stroke::new(1.5, ui.visuals().strong_text_color());
+    ui.painter().rect_stroke(rect, 3.0, stroke, egui::StrokeKind::Inside);
+    let x = rect.min.x + 7.0;
+    ui.painter().line_segment([egui::pos2(x, rect.min.y + 1.0), egui::pos2(x, rect.max.y - 1.0)], stroke);
 }

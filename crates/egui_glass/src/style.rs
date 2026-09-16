@@ -90,6 +90,17 @@ impl GlassStyle {
         }
     }
 
+    /// [`Self::panel`] for dark themes.
+    pub const fn panel_dark() -> Self {
+        Self {
+            tint: Color32::from_rgba_unmultiplied_const(0, 0, 0, 110),
+            specular: 0.15,
+            border: 0.3,
+            shadow: 0.35,
+            ..Self::panel()
+        }
+    }
+
     /// Dark tinted glass for light content.
     pub const fn dark() -> Self {
         Self {
@@ -113,6 +124,12 @@ impl GlassStyle {
     pub const fn with_tint(mut self, tint: Color32) -> Self {
         self.tint = tint;
         self
+    }
+
+    /// True when the tint makes the surface dark enough to need light text.
+    pub fn is_dark(&self) -> bool {
+        let [r, g, b, a] = self.tint.to_array();
+        a >= 60 && (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32) < 0.5 * a as f32
     }
 
     /// Variant used while the pointer is over an interactive glass widget.

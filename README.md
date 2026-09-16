@@ -54,11 +54,14 @@ backdrop is uploaded once with a CPU-generated mip chain, and blur is a 5-tap sa
 cargo run -p egui_glass_demo
 ```
 
-Left panel: sliders for every style parameter and the three presets. Drop an image file on the
+Left panel: sliders for every style parameter and the presets (Regular, Clear, Dark, Panel). A
+dark tint switches the whole page to a macOS-style dark theme. The demo loads the platform UI font
+(SF Pro / Apple SD Gothic Neo on macOS, Segoe UI / Malgun Gothic on Windows) with egui's bundled
+fonts as fallback. Drop an image file on the
 window to change the photo; drag the glass panels around. Sidebar items switch between the photos
 in `examples/asset`; portrait photos are laid out as a tall column on the right, landscape ones
-across the top. The page scrolls under the floating glass, so the sidebar shows the photo and its
-background extension flowing beneath it.
+across the top. The page scrolls under the floating glass, so the sidebar shows the photo flowing
+beneath it; outside the photo the glass shows the page colour.
 
 ## Trademark note
 
