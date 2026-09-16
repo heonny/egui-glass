@@ -34,6 +34,7 @@ struct Uniforms {
     _pad: f32,
     corner_a: [f32; 4], // p, a, b, c
     corner_b: [f32; 4], // d, r, theta3, 0
+    fill: [f32; 4],     // colour outside the backdrop rect
 }
 
 /// Smoothed corner geometry in the corner's local frame (px), following the
@@ -249,14 +250,15 @@ pub fn init(render_state: &RenderState, msaa_samples: u32) {
 pub(crate) struct GlassCallback {
     pub rect: Rect,
     pub backdrop_rect: Rect,
+    pub fill: egui::Color32,
     pub style: GlassStyle,
     pub pass_nr: u64,
     slot: AtomicU32,
 }
 
 impl GlassCallback {
-    pub fn new(rect: Rect, backdrop_rect: Rect, style: GlassStyle, pass_nr: u64) -> Self {
-        Self { rect, backdrop_rect, style, pass_nr, slot: AtomicU32::new(0) }
+    pub fn new(rect: Rect, backdrop_rect: Rect, fill: egui::Color32, style: GlassStyle, pass_nr: u64) -> Self {
+        Self { rect, backdrop_rect, fill, style, pass_nr, slot: AtomicU32::new(0) }
     }
 
     fn uniforms(&self, ppp: f32, srgb_out: bool, max_lod: f32) -> Uniforms {
@@ -266,9 +268,12 @@ impl GlassCallback {
         let (bd_min, bd_max) = px(self.backdrop_rect);
         let budget = 0.5 * self.rect.width().min(self.rect.height()) * ppp;
         let corner = corner_params(s.corner_radius * ppp, s.corner_smoothing, budget);
-        // Color32 is premultiplied; the shader mixes towards a straight colour.
-        let [tr, tg, tb, ta] = s.tint.to_normalized_gamma_f32();
-        let tint = if ta > 0.0 { [tr / ta, tg / ta, tb / ta, ta] } else { [0.0; 4] };
+        // Color32 is premultiplied; the shader mixes towards straight colours.
+        let unpremultiply = |c: egui::Color32| {
+            let [r, g, b, a] = c.to_normalized_gamma_f32();
+            if a > 0.0 { [r / a, g / a, b / a, a] } else { [0.0; 4] }
+        };
+        let tint = unpremultiply(s.tint);
         let light = egui::vec2(-0.45, -1.0).normalized();
         Uniforms {
             rect_min,
@@ -293,6 +298,7 @@ impl GlassCallback {
             _pad: 0.0,
             corner_a: [corner[0], corner[1], corner[2], corner[3]],
             corner_b: [corner[4], corner[5], corner[6], 0.0],
+            fill: unpremultiply(self.fill),
         }
     }
 }

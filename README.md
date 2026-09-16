@@ -18,7 +18,8 @@ egui_glass::set_backdrop(&cc.egui_ctx, rs, &wallpaper_color_image);
 
 // every frame
 egui_glass::show_backdrop(ui, ui.max_rect());   // draws the wallpaper (aspect-fill), records its mapping
-// or place the image yourself: show_backdrop_mapped(ui, image_rect, clip_rect)
+// or place the image yourself; glass outside it shows `page_color`:
+// show_backdrop_mapped(ui, image_rect, clip_rect, page_color)
 
 let style = GlassStyle::regular();                      // or ::clear(), ::dark(), or tweak fields
 Glass::new(style).show(ui, |ui| { ui.label("card / section / sidebar"); });
@@ -56,7 +57,8 @@ cargo run -p egui_glass_demo
 Left panel: sliders for every style parameter and the three presets. Drop an image file on the
 window to change the photo; drag the glass panels around. Sidebar items switch between the photos
 in `examples/asset`; portrait photos are laid out as a tall column on the right, landscape ones
-across the top.
+across the top. The page scrolls under the floating glass, so the sidebar shows the photo and its
+background extension flowing beneath it.
 
 ## Trademark note
 

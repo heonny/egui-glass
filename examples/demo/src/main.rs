@@ -7,6 +7,69 @@ const MAX_PHOTO_SIZE: u32 = 1600;
 const SIDEBAR_WIDTH: f32 = 210.0;
 const PAPER: Color32 = Color32::from_rgb(250, 250, 252);
 
+/// Text shown for a bundled photo, matched by a substring of its file name.
+struct Caption {
+    file_key: &'static str,
+    item: &'static str,
+    title: &'static str,
+    subtitle: &'static str,
+    body: [&'static str; 2],
+}
+
+const CAPTIONS: [Caption; 3] = [
+    Caption {
+        file_key: "Parasol",
+        item: "Parasol",
+        title: "Woman with a Parasol",
+        subtitle: "Claude Monet, 1875. Oil on canvas. National Gallery of Art, Washington.",
+        body: [
+            "Camille Monet and the couple's son Jean stand on a windswept rise near Argenteuil, seen from below \
+             against a sky of fast-moving clouds. The low viewpoint and the flurry of short strokes in the grass \
+             and the veil make the wind almost visible.",
+            "Monet is said to have painted it in a single session. It is one of the clearest statements of the \
+             early Impressionist aim: not the figures themselves, but the light and air around them.",
+        ],
+    },
+    Caption {
+        file_key: "Studio_Boat",
+        item: "Studio Boat",
+        title: "The Studio Boat",
+        subtitle: "Claude Monet, 1876. Oil on canvas. Barnes Foundation, Philadelphia.",
+        body: [
+            "Monet had a small boat fitted with a cabin so he could paint from the middle of the Seine, drifting \
+             among the reflections instead of watching them from the bank. Here he paints the floating studio \
+             itself, moored in the still water at Argenteuil.",
+            "The green hull and its mirror image are built from the same broken touches as the water, so the \
+             boat seems to dissolve into the river it was made to observe.",
+        ],
+    },
+    Caption {
+        file_key: "Argenteuil",
+        item: "Argenteuil",
+        title: "The Bridge at Argenteuil",
+        subtitle: "Claude Monet, 1874. Oil on canvas. Musée d'Orsay, Paris.",
+        body: [
+            "The road bridge over the Seine at Argenteuil, with sailing boats resting in the calm water of the \
+             boating basin that made the town a favourite weekend escape from Paris.",
+            "Painted the year of the first Impressionist exhibition, the picture pairs the crisp geometry of the \
+             bridge with a surface of water where every mast and arch is echoed in loose, wavering strokes.",
+        ],
+    },
+];
+
+const FALLBACK_CAPTION: Caption = Caption {
+    file_key: "",
+    item: "Photo",
+    title: "Your photo",
+    subtitle: "Dropped onto the window.",
+    body: ["Glass surfaces refract whatever backdrop you register.", "Drag the panels around to compare the presets."],
+};
+
+fn caption_for(path: &Path) -> &'static Caption {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    CAPTIONS.iter().find(|c| name.contains(c.file_key)).unwrap_or(&FALLBACK_CAPTION)
+}
+
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
@@ -20,6 +83,11 @@ struct App {
     style: GlassStyle,
     selected: usize,
     photos: Vec<PathBuf>,
+    caption: &'static Caption,
+    /// Pane rect of the previous frame; floating glass is re-anchored when it changes.
+    last_pane: Rect,
+    /// Vertical scroll offset of the page, kept so wheel input over floating glass can drive it.
+    scroll_offset: f32,
     /// Whether the current backdrop was composed for a portrait photo
     /// (extension to the left) or a landscape one (extension below).
     portrait: bool,
@@ -35,7 +103,7 @@ impl App {
             .unwrap_or_default();
         photos.sort();
         let selected = std::env::var("LG_PHOTO").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-        let mut app = Self { style: GlassStyle::regular(), selected, photos, portrait: false };
+        let mut app = Self { style: GlassStyle::regular(), selected, photos, caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
         if let Some(path) = app.photos.get(selected).cloned() {
             app.load_photo(&cc.egui_ctx, rs, &path);
         }
@@ -47,6 +115,7 @@ impl App {
             Ok(img) => {
                 let photo = img.thumbnail(MAX_PHOTO_SIZE, MAX_PHOTO_SIZE).to_rgba8();
                 self.portrait = photo.height() > photo.width();
+                self.caption = caption_for(path);
                 egui_glass::set_backdrop(ctx, rs, &compose_backdrop(&photo, self.portrait));
             }
             Err(err) => eprintln!("failed to load {}: {err}", path.display()),
@@ -101,28 +170,76 @@ impl App {
     fn scene(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         let pane = ui.max_rect();
         let Some(size) = egui_glass::backdrop_size(ui.ctx()).filter(|s| s.x > 0.0 && s.y > 0.0) else { return };
-        // The photo is half of the composed image along the extension axis.
-        let (image_rect, photo_rect) = if self.portrait {
-            let scale = pane.height() / size.y;
-            let image = Rect::from_min_max(egui::pos2(pane.max.x - size.x * scale, pane.min.y), pane.max);
-            (image, Rect::from_min_max(egui::pos2(image.center().x, pane.min.y), pane.max))
-        } else {
-            let scale = pane.width() / size.x;
-            let image = Rect::from_min_size(pane.min, size * scale);
-            (image, Rect::from_min_max(pane.min, egui::pos2(pane.max.x, image.center().y)))
-        };
-        egui_glass::show_backdrop_mapped(ui, image_rect, pane);
-        let content = if self.portrait {
-            Rect::from_min_max(pane.min, egui::pos2(photo_rect.min.x, pane.max.y))
-        } else {
-            Rect::from_min_max(egui::pos2(pane.min.x, photo_rect.max.y), pane.max)
-        };
-        ui.painter().rect_filled(content, 0.0, PAPER.gamma_multiply(0.93));
-        self.article(ui, content);
+        let portrait = self.portrait;
+
+        // Everything except the floating glass scrolls, so the backdrop moves under the sidebar.
+        let mut scroll = egui::ScrollArea::vertical().auto_shrink(false);
+        if let Some(offset) = std::env::var("LG_SCROLL").ok().and_then(|v| v.parse().ok()) {
+            scroll = scroll.vertical_scroll_offset(offset); // dev knob for screenshots
+        }
+        // egui only routes the wheel to a ScrollArea when the pointer's topmost layer is the
+        // scroll area's own; over the floating glass panels we forward it by hand.
+        let over_floating = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| {
+            pane.contains(p) && ui.ctx().layer_id_at(p).is_some_and(|l| l.order == egui::Order::Middle)
+        });
+        let wheel = ui.ctx().input(|i| i.smooth_scroll_delta.y);
+        if over_floating && wheel != 0.0 {
+            self.scroll_offset = (self.scroll_offset - wheel).max(0.0);
+            scroll = scroll.vertical_scroll_offset(self.scroll_offset);
+        }
+        let output = scroll
+            .show(ui, |ui| {
+                let top = ui.max_rect().min;
+                let width = ui.available_width();
+                // The photo is half of the composed image along the extension axis.
+                let (image_rect, photo_rect, paper) = if portrait {
+                    // Tall photo fills the viewport height on the right; the article gets the rest.
+                    let scale = pane.height() / size.y;
+                    let photo_w = size.x / 2.0 * scale;
+                    let column = (width - photo_w).max(200.0);
+                    let image = Rect::from_min_size(egui::pos2(top.x + column - photo_w, top.y), size * scale);
+                    let photo = Rect::from_min_max(egui::pos2(top.x + column, top.y), image.max);
+                    (image, photo, Rect::from_min_max(top, egui::pos2(top.x + column, top.y + 4.0 * pane.height())))
+                } else {
+                    let scale = width / size.x;
+                    let image = Rect::from_min_size(top, size * scale);
+                    let photo = Rect::from_min_max(top, egui::pos2(image.max.x, image.center().y));
+                    (image, photo, Rect::from_min_max(egui::pos2(top.x, photo.max.y), egui::pos2(image.max.x, top.y + 4.0 * pane.height())))
+                };
+                ui.painter().rect_filled(Rect::from_min_max(top, egui::pos2(top.x + width, paper.max.y)), 0.0, PAPER);
+                egui_glass::show_backdrop_mapped(ui, image_rect, pane, PAPER);
+                ui.painter().rect_filled(paper, 0.0, PAPER.gamma_multiply(0.93));
+
+                let (left, column_w, top_space) = if portrait {
+                    (24.0, paper.width() - 48.0, 200.0)
+                } else {
+                    ui.add_space(photo_rect.height());
+                    (SIDEBAR_WIDTH + 48.0, width - SIDEBAR_WIDTH - 48.0 - 280.0, 20.0)
+                };
+                ui.horizontal(|ui| {
+                    ui.add_space(left);
+                    ui.vertical(|ui| {
+                        ui.set_max_width(column_w);
+                        ui.add_space(top_space);
+                        self.article(ui);
+                    });
+                });
+                let end = photo_rect.max.y.max(ui.cursor().top()) + pane.height() - 200.0;
+                ui.add_space((end - ui.cursor().top()).max(0.0));
+                photo_rect
+            });
+        self.scroll_offset = output.state.offset.y;
+        let photo_rect = output.inner;
 
         let style = self.style;
-        let portrait = self.portrait;
-        let area = |id: &str, pos: egui::Pos2| egui::Area::new(egui::Id::new((id, portrait))).movable(true).default_pos(pos).constrain_to(pane);
+        let relayout = self.last_pane != pane;
+        self.last_pane = pane;
+        let area = |id: &str, pos: egui::Pos2| {
+            // constrain(false): on an area's first (sizing) frame egui assumes a 600x400 size and
+            // would clamp the position into the screen and store that wrong position.
+            let area = egui::Area::new(egui::Id::new((id, portrait))).movable(true).constrain(false).default_pos(pos);
+            if relayout { area.current_pos(pos) } else { area }
+        };
 
         area("sidebar", pane.min + Vec2::splat(16.0)).show(ui.ctx(), |ui| {
             ui.set_width(SIDEBAR_WIDTH);
@@ -133,18 +250,18 @@ impl App {
                 }
                 ui.label(egui::RichText::new("▤").size(18.0));
                 ui.add_space(10.0);
-                for (i, (icon, item)) in [("🗻", "Landmarks"), ("🗺", "Map"), ("📖", "Collections")].iter().enumerate() {
-                    if ui.selectable_label(self.selected == i, format!("{icon}  {item}")).clicked() && self.selected != i {
+                for i in 0..self.photos.len() {
+                    let item = caption_for(&self.photos[i]).item;
+                    if ui.selectable_label(self.selected == i, format!("🖼  {item}")).clicked() && self.selected != i {
                         self.selected = i;
-                        if let Some(path) = self.photos.get(i % self.photos.len().max(1)).cloned() {
-                            self.load_photo(ui.ctx(), frame.wgpu_render_state().unwrap(), &path);
-                        }
+                        let path = self.photos[i].clone();
+                        self.load_photo(ui.ctx(), frame.wgpu_render_state().unwrap(), &path);
                     }
                 }
             });
         });
 
-        let back_pos = if portrait { photo_rect.min + Vec2::splat(16.0) } else { pane.min + Vec2::new(SIDEBAR_WIDTH + 32.0, 16.0) };
+        let back_pos = if portrait { egui::pos2(photo_rect.min.x, pane.min.y) + Vec2::splat(16.0) } else { pane.min + Vec2::new(SIDEBAR_WIDTH + 32.0, 16.0) };
         area("back", back_pos).show(ui.ctx(), |ui| {
             GlassButton::new(egui::RichText::new("‹").size(22.0)).icon().style(style).show(ui);
         });
@@ -162,26 +279,15 @@ impl App {
         });
     }
 
-    /// Article text inside the paper-white content area (beside or below the photo).
-    fn article(&self, ui: &mut egui::Ui, content: Rect) {
-        let column = if self.portrait {
-            Rect::from_min_max(content.min + Vec2::new(24.0, 200.0), content.max - Vec2::new(24.0, 24.0))
-        } else {
-            Rect::from_min_max(content.min + Vec2::new(SIDEBAR_WIDTH + 48.0, 20.0), content.max - Vec2::new(40.0, 80.0))
-        };
-        let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(column));
-        ui.heading(egui::RichText::new("Mount Fuji").size(26.0).strong());
-        ui.add_space(6.0);
-        ui.label(
-            "When seen at a distance, Mount Fuji presents Japan's highest and most iconic mountain. \
-             The volcanic cone is visible as far away as Tokyo. Despite its size, the last eruption was in 1707.",
-        );
-        ui.add_space(10.0);
-        ui.label(
-            "Similar to other exceptionally tall mountains, the climate varies with elevation: at lower elevations, deciduous and coniferous \
-             forests thrive; with increasing elevation, the climate becomes harsher and the vegetation sparser. \
-             At the highest altitudes, a volcanic desert of ash and rock remains.",
-        );
+    /// Article text for the current photo, laid out in the paper-white content area.
+    fn article(&self, ui: &mut egui::Ui) {
+        ui.heading(egui::RichText::new(self.caption.title).size(26.0).strong());
+        ui.label(egui::RichText::new(self.caption.subtitle).weak());
+        ui.add_space(8.0);
+        for paragraph in self.caption.body {
+            ui.label(paragraph);
+            ui.add_space(10.0);
+        }
     }
 }
 

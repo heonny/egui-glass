@@ -25,6 +25,7 @@ struct Uniforms {
     _pad: f32,
     corner_a: vec4<f32>,   // p, a, b, c   (smoothed corner, px, see renderer::corner_params)
     corner_b: vec4<f32>,   // d, r, theta3
+    fill: vec4<f32>,       // colour shown where a sample falls outside the backdrop rect
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -77,45 +78,55 @@ fn seg_dist(q: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
 // Signed distance to a box with smoothed (continuous) corners, negative inside.
 // Folded into one quadrant; the boundary there is: top edge, corner curve,
 // right edge, walked clockwise so the inside is on the right of each segment.
+// Segments of (almost) zero length are skipped: their cross product is pure
+// float noise, and a neighbouring segment's endpoint yields the same distance.
+struct Nearest { dist: f32, cross: f32 }
+
+fn consider(q: vec2<f32>, a: vec2<f32>, b: vec2<f32>, n: Nearest) -> Nearest {
+    let ba = b - a;
+    if (dot(ba, ba) < 1e-4) {
+        return n;
+    }
+    let d = seg_dist(q, a, b);
+    if (d < n.dist) {
+        return Nearest(d, ba.x * (q - a).y - ba.y * (q - a).x);
+    }
+    return n;
+}
+
 fn sd_smooth_box(pos: vec2<f32>, half: vec2<f32>) -> f32 {
     let q = abs(pos);
     let p = u.corner_a.x;
-    var best = 1e9;
-    var cross = 0.0;
+    var n = Nearest(1e9, 0.0);
     var a = vec2<f32>(0.0, half.y);
     var b = vec2<f32>(half.x - p, half.y);
-    var d = seg_dist(q, a, b);
-    best = d;
-    cross = (b - a).x * (q - a).y - (b - a).y * (q - a).x;
+    n = consider(q, a, b, n);
     a = b;
     for (var i = 1; i <= CORNER_SEGMENTS; i++) {
         let l = corner_point(i);
         b = vec2<f32>(half.x - l.x, half.y - l.y);
-        d = seg_dist(q, a, b);
-        if (d < best) {
-            best = d;
-            cross = (b - a).x * (q - a).y - (b - a).y * (q - a).x;
-        }
+        n = consider(q, a, b, n);
         a = b;
     }
-    b = vec2<f32>(half.x, 0.0);
-    d = seg_dist(q, a, b);
-    if (d < best) {
-        best = d;
-        cross = (b - a).x * (q - a).y - (b - a).y * (q - a).x;
-    }
-    return select(best, -best, cross < 0.0);
+    n = consider(q, a, vec2<f32>(half.x, 0.0), n);
+    return select(n.dist, -n.dist, n.cross < 0.0);
+}
+
+// One backdrop tap; outside the image it returns the fill colour.
+fn tap(uv: vec2<f32>, lod: f32) -> vec3<f32> {
+    let inside = f32(all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0)));
+    return mix(u.fill.rgb, textureSampleLevel(bd_tex, bd_samp, uv, lod).rgb, inside);
 }
 
 fn sample_backdrop(p: vec2<f32>, lod: f32) -> vec3<f32> {
     let uv = (p - u.bd_min) / (u.bd_max - u.bd_min);
     // 5-tap rotated cross on top of the mip level to hide box artifacts.
     let s = max(u.blur, 0.0) * 0.5 / (u.bd_max - u.bd_min);
-    let c = textureSampleLevel(bd_tex, bd_samp, uv, lod).rgb;
-    let a = textureSampleLevel(bd_tex, bd_samp, uv + vec2<f32>( s.x,  s.y * 0.5), lod).rgb;
-    let b = textureSampleLevel(bd_tex, bd_samp, uv + vec2<f32>(-s.x, -s.y * 0.5), lod).rgb;
-    let d = textureSampleLevel(bd_tex, bd_samp, uv + vec2<f32>( s.x * 0.5, -s.y), lod).rgb;
-    let e = textureSampleLevel(bd_tex, bd_samp, uv + vec2<f32>(-s.x * 0.5,  s.y), lod).rgb;
+    let c = tap(uv, lod);
+    let a = tap(uv + vec2<f32>( s.x,  s.y * 0.5), lod);
+    let b = tap(uv + vec2<f32>(-s.x, -s.y * 0.5), lod);
+    let d = tap(uv + vec2<f32>( s.x * 0.5, -s.y), lod);
+    let e = tap(uv + vec2<f32>(-s.x * 0.5,  s.y), lod);
     return (c * 2.0 + a + b + d + e) / 6.0;
 }
 

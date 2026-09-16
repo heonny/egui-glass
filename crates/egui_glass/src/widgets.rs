@@ -10,9 +10,9 @@ pub fn paint_glass(ui: &Ui, rect: Rect, style: &GlassStyle) {
 }
 
 fn glass_shape(ui: &Ui, rect: Rect, style: &GlassStyle) -> Shape {
-    let backdrop_rect = backdrop_state(ui.ctx()).map(|s| s.rect).unwrap_or(rect);
+    let (backdrop_rect, fill) = backdrop_state(ui.ctx()).map(|s| (s.rect, s.fill)).unwrap_or((rect, Color32::TRANSPARENT));
     let margin = style.shadow_radius * 1.5;
-    let callback = GlassCallback::new(rect, backdrop_rect, *style, ui.ctx().cumulative_pass_nr());
+    let callback = GlassCallback::new(rect, backdrop_rect, fill, *style, ui.ctx().cumulative_pass_nr());
     Shape::Callback(egui_wgpu::Callback::new_paint_callback(rect.expand(margin), callback))
 }
 

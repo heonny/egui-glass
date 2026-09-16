@@ -1,4 +1,4 @@
-use egui::{ColorImage, Context, Id, Rect, TextureId, Ui, Vec2};
+use egui::{Color32, ColorImage, Context, Id, Rect, TextureId, Ui, Vec2};
 use egui_wgpu::RenderState;
 
 use crate::renderer::GlassResources;
@@ -11,6 +11,8 @@ pub(crate) struct BackdropState {
     pub size: Vec2,
     /// Screen rect (points) the *whole* image is mapped to.
     pub rect: Rect,
+    /// Colour glass shows where it samples outside `rect`.
+    pub fill: Color32,
 }
 
 fn state_id() -> Id {
@@ -73,6 +75,7 @@ pub fn set_backdrop(ctx: &Context, render_state: &RenderState, image: &ColorImag
         texture: texture_id,
         size: Vec2::new(size[0] as f32, size[1] as f32),
         rect: Rect::ZERO,
+        fill: Color32::TRANSPARENT,
     };
     ctx.data_mut(|d| d.insert_temp(state_id(), state));
     texture_id
@@ -83,14 +86,17 @@ pub fn set_backdrop(ctx: &Context, render_state: &RenderState, image: &ColorImag
 pub fn show_backdrop(ui: &mut Ui, rect: Rect) {
     let Some(state) = backdrop_state(ui.ctx()) else { return };
     let scale = (rect.width() / state.size.x).max(rect.height() / state.size.y);
-    show_backdrop_mapped(ui, Rect::from_center_size(rect.center(), state.size * scale), rect);
+    let fill = ui.visuals().panel_fill;
+    show_backdrop_mapped(ui, Rect::from_center_size(rect.center(), state.size * scale), rect, fill);
 }
 
 /// Draws the whole backdrop image into `image_rect` (clipped to `clip`) and
-/// records that mapping. Use this when you place the image yourself.
-pub fn show_backdrop_mapped(ui: &mut Ui, image_rect: Rect, clip: Rect) {
+/// records that mapping. Use this when you place the image yourself. Glass that
+/// samples outside `image_rect` shows `outside` (typically your page colour).
+pub fn show_backdrop_mapped(ui: &mut Ui, image_rect: Rect, clip: Rect, outside: Color32) {
     let Some(mut state) = backdrop_state(ui.ctx()) else { return };
     state.rect = image_rect;
+    state.fill = outside;
     ui.ctx().data_mut(|d| d.insert_temp(state_id(), state));
     let painter = ui.painter().with_clip_rect(clip);
     painter.image(state.texture, image_rect, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
@@ -102,11 +108,15 @@ pub fn backdrop_size(ctx: &Context) -> Option<Vec2> {
 }
 
 /// Box-filtered mip chain: (width, height, rgba bytes) per level.
+/// Colour channels are averaged in linear light (sRGB decoded via LUT and
+/// re-encoded), so blurred levels keep the brightness of the original.
 fn cpu_mip_chain(image: &ColorImage) -> Vec<(u32, u32, Vec<u8>)> {
     let (mut w, mut h) = (image.size[0] as u32, image.size[1] as u32);
     if w == 0 || h == 0 {
         return vec![(1, 1, vec![0; 4])];
     }
+    let decode: Vec<f32> = (0..256).map(|i| srgb_to_linear(i as f32 / 255.0)).collect();
+    let encode: Vec<u8> = (0..=ENCODE_STEPS).map(|i| (linear_to_srgb(i as f32 / ENCODE_STEPS as f32) * 255.0).round() as u8).collect();
     let mut cur: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_array()).collect();
     let mut levels = vec![(w, h, cur.clone())];
     while w > 1 || h > 1 {
@@ -116,13 +126,13 @@ fn cpu_mip_chain(image: &ColorImage) -> Vec<(u32, u32, Vec<u8>)> {
             for x in 0..nw {
                 let (x0, y0) = (x * 2, y * 2);
                 let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
-                for c in 0..4 {
-                    let sum = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)]
-                        .iter()
-                        .map(|&(sx, sy)| cur[((sy * w + sx) * 4 + c) as usize] as u32)
-                        .sum::<u32>();
-                    next[((y * nw + x) * 4 + c) as usize] = ((sum + 2) / 4) as u8;
+                let taps = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)];
+                for c in 0..3 {
+                    let sum: f32 = taps.iter().map(|&(sx, sy)| decode[cur[((sy * w + sx) * 4 + c) as usize] as usize]).sum();
+                    next[((y * nw + x) * 4 + c) as usize] = encode[(sum / 4.0 * ENCODE_STEPS as f32).round() as usize];
                 }
+                let alpha: u32 = taps.iter().map(|&(sx, sy)| cur[((sy * w + sx) * 4 + 3) as usize] as u32).sum();
+                next[((y * nw + x) * 4 + 3) as usize] = ((alpha + 2) / 4) as u8;
             }
         }
         w = nw;
@@ -131,6 +141,16 @@ fn cpu_mip_chain(image: &ColorImage) -> Vec<(u32, u32, Vec<u8>)> {
         levels.push((w, h, cur.clone()));
     }
     levels
+}
+
+const ENCODE_STEPS: usize = 4095;
+
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
 }
 
 #[cfg(test)]
@@ -151,6 +171,16 @@ mod tests {
             .collect());
         let mips = cpu_mip_chain(&img);
         assert_eq!(mips.len(), 3); // 4x2 -> 2x1 -> 1x1
-        assert_eq!(mips[2].2[..3], [128, 128, 128]);
+        // Linear-light average of black and white is 0.5, which encodes to ~188, not 128.
+        assert!((187..=188).contains(&mips[2].2[0]), "got {}", mips[2].2[0]);
+        assert_eq!(mips[2].2[3], 255);
+    }
+
+    #[test]
+    fn srgb_round_trip_is_identity() {
+        for i in 0..=255u8 {
+            let back = (linear_to_srgb(srgb_to_linear(i as f32 / 255.0)) * 255.0).round() as u8;
+            assert_eq!(back, i);
+        }
     }
 }
