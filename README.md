@@ -81,7 +81,9 @@ egui_glass = { git = "https://github.com/heonny/egui-glass.git" }            # n
 # egui_glass = { git = "...", features = ["serde"] }   # GlassStyle: Serialize / Deserialize
 ```
 
-Minimal app: register the pipeline and a backdrop once, then draw glass wherever you like.
+Minimal app (also in the repo as `examples/demo/examples/minimal.rs`, run it with
+`cargo run -p egui_glass_demo --example minimal`): register the pipeline and a backdrop once, then
+draw glass wherever you like.
 
 ```rust
 use eframe::egui;
