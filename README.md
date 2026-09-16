@@ -46,7 +46,10 @@ make install    # same, then copy the app into /Applications
 ```
 
 The script (`scripts/bundle-macos.sh`) uses the app icon from `assets/branding`, copies the sample
-photos into the bundle and ad-hoc signs it for local use. `make run`, `make test`
+photos into the bundle and ad-hoc signs it for local use. On first launch from Finder, macOS shows
+"Apple could not verify ... is free of malware": open *System Settings > Privacy & Security* and
+click *Open Anyway* once. For a build that launches without the prompt, sign with a Developer ID
+and notarize by setting `CODESIGN_IDENTITY` (and optionally `NOTARY_PROFILE`) before `make install`. `make run`, `make test`
 and `make lint` wrap the cargo commands.
 
 ## Use the library

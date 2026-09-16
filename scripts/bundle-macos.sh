@@ -7,6 +7,12 @@
 #   ./scripts/bundle-macos.sh path/to/icon.png    # custom square PNG (1024x1024 recommended)
 #   ./scripts/bundle-macos.sh --install           # also copy the .app into /Applications
 #
+# Signing: by default the bundle is ad-hoc signed, which is fine for local use but
+# makes Finder show "Apple could not verify ... is free of malware" on first launch
+# (System Settings > Privacy & Security > Open Anyway, once). For a proper build set
+#   CODESIGN_IDENTITY="Developer ID Application: <name> (<team>)"   # from `security find-identity -v -p codesigning`
+#   NOTARY_PROFILE="<keychain profile>"                              # optional, from `xcrun notarytool store-credentials`
+#
 # macOS only: relies on sips + iconutil + codesign, all shipped with the OS.
 
 set -euo pipefail
@@ -90,10 +96,21 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# --- 4. ad-hoc sign (local use; not for distribution) --------------------
-echo "==> ad-hoc signing"
-codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 \
-  || echo "warn: ad-hoc codesign failed (bundle still usable locally)" >&2
+# --- 4. sign: Developer ID (+ optional notarization) or ad-hoc -----------
+if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+  echo "==> signing with $CODESIGN_IDENTITY"
+  codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP_DIR"
+  if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+    echo "==> notarizing"
+    ditto -c -k --keepParent "$APP_DIR" "$TMP/app.zip"
+    xcrun notarytool submit "$TMP/app.zip" --keychain-profile "$NOTARY_PROFILE" --wait
+    xcrun stapler staple "$APP_DIR"
+  fi
+else
+  echo "==> ad-hoc signing (local use; Finder will ask once: Privacy & Security > Open Anyway)"
+  codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 \
+    || echo "warn: ad-hoc codesign failed (bundle still usable locally)" >&2
+fi
 
 # --- 5. optional install into /Applications ------------------------------
 if [[ "$INSTALL" == 1 ]]; then
@@ -101,6 +118,8 @@ if [[ "$INSTALL" == 1 ]]; then
   echo "==> installing to $DEST"
   rm -rf "$DEST"
   cp -R "$APP_DIR" "$DEST"
+  # Drop any quarantine flag so a locally built app is not treated as a download.
+  xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
 fi
 
 echo "==> done: $APP_DIR"
