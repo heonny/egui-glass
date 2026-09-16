@@ -69,7 +69,8 @@ blank, so retry rather than assume a bug.
 ## Release
 
 The library is published to crates.io from `crates/egui_glass` (no path dependencies; the
-README is pulled in from the workspace root). `cargo publish -p egui_glass --dry-run` must pass.
+README is pulled in from the workspace root; image links in it must be absolute raw GitHub URLs,
+relative paths 404 on crates.io because the crate lives in a subdirectory). `cargo publish -p egui_glass --dry-run` must pass.
 Bump `version` in `crates/egui_glass/Cargo.toml`, commit, then `git tag vX.Y.Z && git push origin
 vX.Y.Z`: `.github/workflows/release.yml` checks the tag against the version and publishes with the
 `CARGO_REGISTRY_TOKEN` secret. CI (`ci.yml`) runs library tests/clippy on Linux, macOS and Windows

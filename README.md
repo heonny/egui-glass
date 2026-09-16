@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/readme-logo.png" alt="egui_glass" width="640">
+  <img src="https://raw.githubusercontent.com/heonny/egui-glass/main/assets/branding/readme-logo.png" alt="egui_glass" width="640">
 </p>
 
 Apple *Liquid Glass* style surfaces for [egui](https://github.com/emilk/egui), rendered on the GPU
@@ -7,7 +7,7 @@ through `egui-wgpu` paint callbacks. One fragment shader does everything: contin
 signed-distance shape, edge refraction (lensing) with optional chromatic aberration, mip-based
 backdrop blur, tint / vibrancy, specular rim, inner border and drop shadow. No animation.
 
-![demo](docs/demo.jpg)
+![demo](https://raw.githubusercontent.com/heonny/egui-glass/main/docs/demo.jpg)
 
 ## Requirements
 
