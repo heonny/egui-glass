@@ -40,10 +40,28 @@ the shader. No Apple curve constants are used.
 ## How it works / limits
 
 egui paints in a single render pass, so a shader cannot read the pixels already drawn behind a
-widget in the same frame. Glass therefore refracts a **backdrop image** you register with
-`set_backdrop` (a wallpaper, a photo, a composited screenshot of your content) and place with
-`show_backdrop`. Anything egui draws on top of that backdrop is not refracted. This matches
-Apple's guidance that glass floats above content and is never stacked on glass.
+widget in the same frame. By default glass therefore refracts a **backdrop image** you register
+with `set_backdrop` (a wallpaper, a photo) and place with `show_backdrop`; anything egui draws on
+top of it shows as the page colour through the glass. This is cheap and matches Apple's guidance
+that glass floats above content and is never stacked on glass.
+
+### Live backdrop (optional)
+
+`LiveBackdrop` lifts that limit: the content you pass to `LiveBackdrop::run` is laid out a second
+time in a twin egui context (same memory, no input events) and rendered off screen without the
+glass, then used as this frame's backdrop. Glass then refracts everything beneath it, text
+included, with no frame of lag. The cost is one extra layout and draw of that content per frame.
+
+```rust
+// once, after init and before set_backdrop / register_native_texture
+let live = LiveBackdrop::new(rs, Some(font_definitions));
+// every frame: content inside, glass outside
+live.run(ui, page_color, |ui| page(ui));
+Glass::new(style).show(ui, |ui| { /* floats over the page */ });
+```
+
+Images drawn inside the content must be registered with `egui_glass::register_native_texture`
+(or `set_backdrop`) so the off-screen pass can draw them too.
 
 Each glass surface costs one draw call (a single triangle) and one 256-byte uniform slot; the
 backdrop is uploaded once with a CPU-generated mip chain, and blur is a 5-tap sample at a mip level.

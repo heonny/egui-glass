@@ -3,7 +3,7 @@ mod fonts;
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Color32, ColorImage, Rect, Vec2};
-use egui_glass::{Glass, GlassButton, GlassStyle, GlassToolbar};
+use egui_glass::{Glass, GlassButton, GlassStyle, GlassToolbar, LiveBackdrop};
 
 const MAX_PHOTO_SIZE: u32 = 1600;
 const SIDEBAR_WIDTH: f32 = 210.0;
@@ -74,7 +74,23 @@ fn caption_for(path: &Path) -> &'static Caption {
     CAPTIONS.iter().find(|c| name.contains(c.file_key)).unwrap_or(&FALLBACK_CAPTION)
 }
 
+/// Minimal stderr logger so wgpu/egui warnings (e.g. validation errors) are visible.
+struct StderrLogger;
+
+impl log::Log for StderrLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Warn
+    }
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!("[{}] {}: {}", record.level(), record.target(), record.args());
+        }
+    }
+    fn flush(&self) {}
+}
+
 fn main() -> eframe::Result {
+    let _ = log::set_logger(&StderrLogger).map(|()| log::set_max_level(log::LevelFilter::Warn));
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default().with_inner_size([1180.0, 800.0]).with_title("egui_glass demo"),
@@ -89,6 +105,9 @@ struct App {
     photos: Vec<PathBuf>,
     /// Theme the visuals were last built for.
     dark: bool,
+    live: LiveBackdrop,
+    /// Render the page off screen too, so glass refracts text as well as the photo.
+    live_mode: bool,
     caption: &'static Caption,
     /// Pane rect of the previous frame; floating glass is re-anchored when it changes.
     last_pane: Rect,
@@ -104,6 +123,7 @@ impl App {
         cc.egui_ctx.set_fonts(fonts::system_fonts());
         let rs = cc.wgpu_render_state.as_ref().expect("demo requires the wgpu backend");
         egui_glass::init(rs, 1);
+        let live = LiveBackdrop::new(rs, Some(fonts::system_fonts()));
         let mut photos: Vec<PathBuf> = std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../asset"))
             .map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "jpg" || e == "png")).collect())
             .unwrap_or_default();
@@ -114,7 +134,7 @@ impl App {
             Ok("clear") => GlassStyle::clear(),
             _ => GlassStyle::regular(),
         };
-        let mut app = Self { style, selected, photos, dark: style.is_dark(), caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
+        let mut app = Self { style, selected, photos, dark: style.is_dark(), live, live_mode: std::env::var_os("LG_LIVE").is_none_or(|v| v != "0"), caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
         app.apply_visuals(&cc.egui_ctx);
         if let Some(path) = app.photos.get(selected).cloned() {
             app.load_photo(&cc.egui_ctx, rs, &path);
@@ -182,6 +202,7 @@ impl App {
                 }
             }
         });
+        ui.checkbox(&mut self.live_mode, "Live backdrop (glass refracts text too)");
         ui.separator();
         let s = &mut self.style;
         let slider = |ui: &mut egui::Ui, v: &mut f32, range: std::ops::RangeInclusive<f32>, label: &str| {
@@ -215,58 +236,27 @@ impl App {
         let portrait = self.portrait;
         let paper_color = self.paper();
 
-        // Everything except the floating glass scrolls, so the backdrop moves under the sidebar.
-        let mut scroll = egui::ScrollArea::vertical().auto_shrink(false);
-        if let Some(offset) = std::env::var("LG_SCROLL").ok().and_then(|v| v.parse().ok()) {
-            scroll = scroll.vertical_scroll_offset(offset); // dev knob for screenshots
-        }
         // egui only routes the wheel to a ScrollArea when the pointer's topmost layer is the
         // scroll area's own; over the floating glass panels we forward it by hand.
         let over_floating = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| {
             pane.contains(p) && ui.ctx().layer_id_at(p).is_some_and(|l| l.order == egui::Order::Middle)
         });
         let wheel = ui.ctx().input(|i| i.smooth_scroll_delta.y);
+        let mut forced_offset = std::env::var("LG_SCROLL").ok().and_then(|v| v.parse().ok()); // dev knob for screenshots
         if over_floating && wheel != 0.0 {
             self.scroll_offset = (self.scroll_offset - wheel).max(0.0);
-            scroll = scroll.vertical_scroll_offset(self.scroll_offset);
+            forced_offset = Some(self.scroll_offset);
         }
-        let output = scroll
-            .show(ui, |ui| {
-                let top = ui.max_rect().min;
-                let width = ui.available_width();
-                // Everything that is not the photo is plain paper, on screen and for the glass alike.
-                let photo_rect = if portrait {
-                    // Tall photo fills the viewport height on the right; the article gets the rest.
-                    let scale = pane.height() / size.y;
-                    let column = (width - size.x * scale).max(200.0);
-                    Rect::from_min_size(egui::pos2(top.x + column, top.y), size * scale)
-                } else {
-                    Rect::from_min_size(top, size * (width / size.x))
-                };
-                ui.painter().rect_filled(Rect::from_min_size(top, Vec2::new(width, 4.0 * pane.height())), 0.0, paper_color);
-                egui_glass::show_backdrop_mapped(ui, photo_rect, pane, paper_color);
 
-                let (left, column_w, top_space) = if portrait {
-                    (24.0, photo_rect.min.x - top.x - 48.0, 200.0)
-                } else {
-                    ui.add_space(photo_rect.height());
-                    (SIDEBAR_WIDTH + 48.0, width - SIDEBAR_WIDTH - 48.0 - 280.0, 20.0)
-                };
-                let column_w = column_w.max(120.0); // narrow windows: keep the layout valid
-                ui.horizontal(|ui| {
-                    ui.add_space(left);
-                    ui.vertical(|ui| {
-                        ui.set_max_width(column_w);
-                        ui.add_space(top_space);
-                        self.article(ui);
-                    });
-                });
-                let end = photo_rect.max.y.max(ui.cursor().top()) + pane.height() - 200.0;
-                ui.add_space((end - ui.cursor().top()).max(0.0));
-                photo_rect
-            });
-        self.scroll_offset = output.state.offset.y;
-        let photo_rect = output.inner;
+        // The page (photo + article) scrolls under the floating glass. In live mode it is also
+        // rendered off screen so the glass refracts the text.
+        let live = self.live_mode.then(|| self.live.clone());
+        let mut photo_rect = Rect::NOTHING;
+        let mut page = |ui: &mut egui::Ui| photo_rect = self.page(ui, pane, size, paper_color, forced_offset);
+        match live {
+            Some(live) => live.run(ui, paper_color, page),
+            None => page(ui),
+        }
 
         let style = self.style;
         let relayout = self.last_pane != pane;
@@ -316,6 +306,51 @@ impl App {
         });
     }
 
+    /// The scrolling page: photo, paper and article. Returns the photo's screen rect.
+    fn page(&mut self, ui: &mut egui::Ui, pane: Rect, size: Vec2, paper_color: Color32, forced_offset: Option<f32>) -> Rect {
+        let portrait = self.portrait;
+        let mut scroll = egui::ScrollArea::vertical().auto_shrink(false);
+        if let Some(offset) = forced_offset {
+            scroll = scroll.vertical_scroll_offset(offset);
+        }
+        let output = scroll.show(ui, |ui| {
+            let top = ui.max_rect().min;
+            let width = ui.available_width();
+            // Everything that is not the photo is plain paper, on screen and for the glass alike.
+            let photo_rect = if portrait {
+                // Tall photo fills the viewport height on the right; the article gets the rest.
+                let scale = pane.height() / size.y;
+                let column = (width - size.x * scale).max(200.0);
+                Rect::from_min_size(egui::pos2(top.x + column, top.y), size * scale)
+            } else {
+                Rect::from_min_size(top, size * (width / size.x))
+            };
+            ui.painter().rect_filled(Rect::from_min_size(top, Vec2::new(width, 4.0 * pane.height())), 0.0, paper_color);
+            egui_glass::show_backdrop_mapped(ui, photo_rect, pane, paper_color);
+
+            let (left, column_w, top_space) = if portrait {
+                (24.0, photo_rect.min.x - top.x - 48.0, 200.0)
+            } else {
+                ui.add_space(photo_rect.height());
+                (SIDEBAR_WIDTH + 48.0, width - SIDEBAR_WIDTH - 48.0 - 280.0, 20.0)
+            };
+            let column_w = column_w.max(120.0); // narrow windows: keep the layout valid
+            ui.horizontal(|ui| {
+                ui.add_space(left);
+                ui.vertical(|ui| {
+                    ui.set_max_width(column_w);
+                    ui.add_space(top_space);
+                    self.article(ui);
+                });
+            });
+            let end = photo_rect.max.y.max(ui.cursor().top()) + pane.height() - 200.0;
+            ui.add_space((end - ui.cursor().top()).max(0.0));
+            photo_rect
+        });
+        self.scroll_offset = output.state.offset.y;
+        output.inner
+    }
+
     /// Article text for the current photo, laid out in the paper-white content area.
     fn article(&self, ui: &mut egui::Ui) {
         ui.heading(egui::RichText::new(self.caption.title).size(26.0).strong());
@@ -329,6 +364,11 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Keep the floating panels at their designed positions between runs.
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.sync_theme(ui.ctx());
         self.handle_drop(ui.ctx(), frame);

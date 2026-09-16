@@ -69,11 +69,17 @@ pub(crate) struct GlassResources {
     sampler: wgpu::Sampler,
     backdrop_view: wgpu::TextureView,
     max_lod: f32,
+    /// Off-screen backdrop from [`crate::LiveBackdrop`] and the live frame it belongs to.
+    live: Option<(wgpu::TextureView, f32, u64)>,
+    /// Which live frame the bind group was built for, if it is bound to a live view.
+    bound_live: Option<u64>,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     capacity: u32,
     next_slot: u32,
     last_pass: u64,
+    /// Max mip level of whatever backdrop is bound for the current pass.
+    current_lod: f32,
     srgb_out: bool,
 }
 
@@ -171,11 +177,14 @@ impl GlassResources {
             sampler,
             backdrop_view,
             max_lod: 0.0,
+            live: None,
+            bound_live: None,
             uniforms,
             bind_group,
             capacity: INITIAL_SLOTS,
             next_slot: 0,
             last_pass: u64::MAX,
+            current_lod: 0.0,
             srgb_out: render_state.target_format.is_srgb(),
         }
     }
@@ -218,12 +227,45 @@ impl GlassResources {
         self.backdrop_view = view;
         self.max_lod = mip_levels.saturating_sub(1) as f32;
         self.bind_group = Self::create_bind_group(device, &self.layout, &self.uniforms, &self.backdrop_view, &self.sampler);
+        self.bound_live = None;
+    }
+
+    /// Use an off-screen render as the backdrop for the glass prepared after this call.
+    pub(crate) fn set_live_backdrop(&mut self, view: wgpu::TextureView, mip_levels: u32, live_frame: u64) {
+        self.live = Some((view, mip_levels.saturating_sub(1) as f32, live_frame));
+    }
+
+    /// Binds the live view when one was produced this pass, else the static backdrop.
+    fn bind_current(&mut self, device: &wgpu::Device, new_pass: bool) -> f32 {
+        if new_pass {
+            // A live frame is consumed by the pass it was produced in.
+            if self.live.as_ref().is_some_and(|(_, _, frame)| self.bound_live == Some(*frame)) {
+                self.live = None;
+            }
+        }
+        match &self.live {
+            Some((view, lod, frame)) => {
+                if self.bound_live != Some(*frame) {
+                    self.bind_group = Self::create_bind_group(device, &self.layout, &self.uniforms, view, &self.sampler);
+                    self.bound_live = Some(*frame);
+                }
+                *lod
+            }
+            None => {
+                if self.bound_live.is_some() {
+                    self.bind_group = Self::create_bind_group(device, &self.layout, &self.uniforms, &self.backdrop_view, &self.sampler);
+                    self.bound_live = None;
+                }
+                self.max_lod
+            }
+        }
     }
 
     /// Hands out the next uniform slot for this pass, growing the buffer if needed.
     /// Earlier slots of this pass are copied over so their callbacks still paint.
     fn alloc_slot(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, pass_nr: u64) -> u32 {
-        if self.last_pass != pass_nr {
+        let new_pass = self.last_pass != pass_nr;
+        if new_pass {
             self.last_pass = pass_nr;
             self.next_slot = 0;
         }
@@ -231,8 +273,9 @@ impl GlassResources {
             let old = std::mem::replace(&mut self.uniforms, Self::create_uniforms(device, self.capacity * 2));
             encoder.copy_buffer_to_buffer(&old, 0, &self.uniforms, 0, SLOT_SIZE * self.capacity as u64);
             self.capacity *= 2;
-            self.bind_group = Self::create_bind_group(device, &self.layout, &self.uniforms, &self.backdrop_view, &self.sampler);
+            self.bound_live = Some(u64::MAX); // force a rebuild against the new buffer
         }
+        self.current_lod = self.bind_current(device, new_pass);
         let slot = self.next_slot;
         self.next_slot += 1;
         slot
@@ -315,7 +358,7 @@ impl CallbackTrait for GlassCallback {
         let Some(res) = resources.get_mut::<GlassResources>() else { return Vec::new() };
         let slot = res.alloc_slot(device, encoder, self.pass_nr);
         self.slot.store(slot, Ordering::Relaxed);
-        let uniforms = self.uniforms(screen.pixels_per_point, res.srgb_out, res.max_lod);
+        let uniforms = self.uniforms(screen.pixels_per_point, res.srgb_out, res.current_lod);
         queue.write_buffer(&res.uniforms, SLOT_SIZE * slot as u64, bytemuck::bytes_of(&uniforms));
         Vec::new()
     }

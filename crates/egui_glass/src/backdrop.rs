@@ -1,6 +1,7 @@
 use egui::{Color32, ColorImage, Context, Id, Rect, TextureId, Ui, Vec2};
 use egui_wgpu::RenderState;
 
+use crate::live::LiveResources;
 use crate::renderer::GlassResources;
 
 /// Where the backdrop image is mapped on screen. Stored in egui memory so
@@ -61,9 +62,9 @@ pub fn set_backdrop(ctx: &Context, render_state: &RenderState, image: &ColorImag
 
     let mut renderer = render_state.renderer.write();
     if let Some(previous) = backdrop_state(ctx) {
-        renderer.free_texture(&previous.texture);
+        free_native_texture(&mut renderer, &previous.texture);
     }
-    let texture_id = renderer.register_native_texture(&render_state.device, &view, wgpu::FilterMode::Linear);
+    let texture_id = register_native_texture_in(&mut renderer, &render_state.device, &view);
     let resources: &mut GlassResources = renderer
         .callback_resources
         .get_mut()
@@ -79,6 +80,33 @@ pub fn set_backdrop(ctx: &Context, render_state: &RenderState, image: &ColorImag
     };
     ctx.data_mut(|d| d.insert_temp(state_id(), state));
     texture_id
+}
+
+/// Registers a wgpu texture for drawing with egui, in the app's renderer and
+/// (if a [`crate::LiveBackdrop`] exists) in its off-screen renderer too, so
+/// images drawn with it also show through live glass.
+pub fn register_native_texture(render_state: &RenderState, view: &wgpu::TextureView) -> TextureId {
+    register_native_texture_in(&mut render_state.renderer.write(), &render_state.device, view)
+}
+
+/// Frees a texture registered with [`register_native_texture`].
+pub fn free_native_texture_id(render_state: &RenderState, id: &TextureId) {
+    free_native_texture(&mut render_state.renderer.write(), id);
+}
+
+fn register_native_texture_in(renderer: &mut egui_wgpu::Renderer, device: &wgpu::Device, view: &wgpu::TextureView) -> TextureId {
+    let id = renderer.register_native_texture(device, view, wgpu::FilterMode::Linear);
+    if let Some(live) = renderer.callback_resources.get_mut::<LiveResources>() {
+        live.register_native_texture(device, view, id);
+    }
+    id
+}
+
+fn free_native_texture(renderer: &mut egui_wgpu::Renderer, id: &TextureId) {
+    renderer.free_texture(id);
+    if let Some(live) = renderer.callback_resources.get_mut::<LiveResources>() {
+        live.free_texture(id);
+    }
 }
 
 /// Draws the backdrop image covering `rect` (aspect-fill, centered) and records

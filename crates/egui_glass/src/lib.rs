@@ -17,14 +17,19 @@
 //!
 //! Glass refracts a *backdrop image* you register once (or whenever it changes),
 //! not the live framebuffer: egui paints in a single pass, so the pixels behind a
-//! widget are not available to a shader in the same frame.
+//! widget are not available to a shader in the same frame. [`LiveBackdrop`]
+//! lifts that limit by rendering your content a second time off screen.
 
 mod backdrop;
+mod live;
 mod renderer;
 mod style;
 mod widgets;
 
-pub use backdrop::{backdrop_rect, backdrop_size, set_backdrop, show_backdrop, show_backdrop_mapped};
+pub use backdrop::{
+    backdrop_rect, backdrop_size, free_native_texture_id, register_native_texture, set_backdrop, show_backdrop, show_backdrop_mapped,
+};
+pub use live::LiveBackdrop;
 pub use renderer::init;
 pub use style::GlassStyle;
 pub use widgets::{paint_glass, Glass, GlassButton, GlassToolbar};

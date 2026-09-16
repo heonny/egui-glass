@@ -595,6 +595,7 @@ dependencies = [
  "egui",
  "egui_glass",
  "image",
+ "log",
 ]
 
 [[package]]

@@ -10,7 +10,10 @@ pub fn paint_glass(ui: &Ui, rect: Rect, style: &GlassStyle) {
 }
 
 fn glass_shape(ui: &Ui, rect: Rect, style: &GlassStyle) -> Shape {
-    let (backdrop_rect, fill) = backdrop_state(ui.ctx()).map(|s| (s.rect, s.fill)).unwrap_or((rect, Color32::TRANSPARENT));
+    let (backdrop_rect, fill) = match crate::live::live_state(ui.ctx()) {
+        Some(live) => (live.screen_rect, Color32::TRANSPARENT),
+        None => backdrop_state(ui.ctx()).map(|s| (s.rect, s.fill)).unwrap_or((rect, Color32::TRANSPARENT)),
+    };
     let margin = style.shadow_radius * 1.5;
     let callback = GlassCallback::new(rect, backdrop_rect, fill, *style, ui.ctx().cumulative_pass_nr());
     Shape::Callback(egui_wgpu::Callback::new_paint_callback(rect.expand(margin), callback))
@@ -27,7 +30,7 @@ fn expand_margin(rect: Rect, m: Margin, sign: f32) -> Rect {
 /// background, soft translucent highlight, capsule corners, no strokes.
 /// Apple never stacks glass on glass.
 fn flat_visuals(ui: &mut Ui, style: &GlassStyle) {
-    let highlight = if style.is_dark() { Color32::from_white_alpha(36) } else { Color32::from_white_alpha(70) };
+    let highlight = if style.is_dark() { Color32::from_white_alpha(36) } else { Color32::from_black_alpha(14) };
     let fg = text_color(ui, style);
     let widgets = &mut ui.style_mut().visuals.widgets;
     for w in [&mut widgets.inactive, &mut widgets.hovered, &mut widgets.active, &mut widgets.open] {
@@ -42,7 +45,7 @@ fn flat_visuals(ui: &mut Ui, style: &GlassStyle) {
     widgets.hovered.bg_fill = highlight;
     widgets.active.weak_bg_fill = highlight.gamma_multiply(1.6);
     widgets.active.bg_fill = highlight.gamma_multiply(1.6);
-    ui.style_mut().visuals.selection.bg_fill = if style.is_dark() { Color32::from_white_alpha(56) } else { Color32::from_white_alpha(110) };
+    ui.style_mut().visuals.selection.bg_fill = if style.is_dark() { Color32::from_white_alpha(56) } else { Color32::from_black_alpha(26) };
     ui.style_mut().visuals.selection.stroke.color = fg;
 }
 

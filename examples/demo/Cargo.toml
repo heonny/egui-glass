@@ -9,3 +9,4 @@ egui = { workspace = true }
 eframe = { workspace = true }
 egui_glass = { path = "../../crates/egui_glass" }
 image = { workspace = true }
+log = "0.4"
