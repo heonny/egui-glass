@@ -7,7 +7,7 @@ through `egui-wgpu` paint callbacks. One fragment shader does everything: contin
 signed-distance shape, edge refraction (lensing) with optional chromatic aberration, mip-based
 backdrop blur, tint / vibrancy, specular rim, inner border and drop shadow. No animation.
 
-![demo](docs/demo.png)
+![demo](docs/demo.jpg)
 
 ## Requirements
 
