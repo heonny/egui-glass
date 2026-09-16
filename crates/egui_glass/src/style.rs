@@ -2,6 +2,8 @@ use egui::Color32;
 
 /// Visual parameters of a glass surface. All lengths are in logical points.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct GlassStyle {
     /// Corner radius. Use [`f32::INFINITY`] for a capsule.
     pub corner_radius: f32,
@@ -144,5 +146,19 @@ impl GlassStyle {
         self.brightness *= 0.9;
         self.tint = self.tint.gamma_multiply(1.3);
         self
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod tests {
+    use super::GlassStyle;
+
+    #[test]
+    fn json_round_trip_and_missing_fields_default() {
+        let style = GlassStyle::clear().with_corner_radius(7.5);
+        let json = serde_json::to_string(&style).unwrap();
+        assert_eq!(serde_json::from_str::<GlassStyle>(&json).unwrap(), style);
+        let partial: GlassStyle = serde_json::from_str(r#"{"blur": 3.0}"#).unwrap();
+        assert_eq!(partial, GlassStyle { blur: 3.0, ..GlassStyle::regular() });
     }
 }

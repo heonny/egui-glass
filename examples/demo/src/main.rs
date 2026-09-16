@@ -6,6 +6,13 @@ use eframe::egui::{self, Color32, ColorImage, Rect, Vec2};
 use egui_glass::{Glass, GlassButton, GlassStyle, GlassToolbar, LiveBackdrop};
 
 const MAX_PHOTO_SIZE: u32 = 1600;
+
+/// Everything the user can tune, saved as JSON by the Export / Import buttons.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Settings {
+    style: GlassStyle,
+    live_mode: bool,
+}
 const SIDEBAR_WIDTH: f32 = 210.0;
 /// Page colours: macOS/iOS light and dark system backgrounds.
 const PAPER: Color32 = Color32::from_rgb(250, 250, 252);
@@ -108,6 +115,8 @@ struct App {
     live: LiveBackdrop,
     /// Render the page off screen too, so glass refracts text as well as the photo.
     live_mode: bool,
+    /// Result of the last export / import, shown under the sliders.
+    status: Option<String>,
     caption: &'static Caption,
     /// Pane rect of the previous frame; floating glass is re-anchored when it changes.
     last_pane: Rect,
@@ -134,7 +143,7 @@ impl App {
             Ok("clear") => GlassStyle::clear(),
             _ => GlassStyle::regular(),
         };
-        let mut app = Self { style, selected, photos, dark: style.is_dark(), live, live_mode: std::env::var_os("LG_LIVE").is_none_or(|v| v != "0"), caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
+        let mut app = Self { style, selected, photos, dark: style.is_dark(), live, live_mode: std::env::var_os("LG_LIVE").is_none_or(|v| v != "0"), status: None, caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
         app.apply_visuals(&cc.egui_ctx);
         if let Some(path) = app.photos.get(selected).cloned() {
             app.load_photo(&cc.egui_ctx, rs, &path);
@@ -153,6 +162,27 @@ impl App {
             }
             Err(err) => eprintln!("failed to load {}: {err}", path.display()),
         }
+    }
+
+    fn export_settings(&mut self) {
+        let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).set_file_name("glass-style.json").save_file() else { return };
+        let settings = Settings { style: self.style, live_mode: self.live_mode };
+        self.status = Some(match serde_json::to_string_pretty(&settings).map_err(|e| e.to_string()).and_then(|json| std::fs::write(&path, json).map_err(|e| e.to_string())) {
+            Ok(()) => format!("Exported to {}", path.display()),
+            Err(err) => format!("Export failed: {err}"),
+        });
+    }
+
+    fn import_settings(&mut self) {
+        let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() else { return };
+        self.status = Some(match std::fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|json| serde_json::from_str::<Settings>(&json).map_err(|e| e.to_string())) {
+            Ok(settings) => {
+                self.style = settings.style;
+                self.live_mode = settings.live_mode;
+                format!("Imported {}", path.display())
+            }
+            Err(err) => format!("Import failed: {err}"),
+        });
     }
 
     fn paper(&self) -> Color32 {
@@ -203,6 +233,9 @@ impl App {
             }
         });
         ui.checkbox(&mut self.live_mode, "Live backdrop (glass refracts text too)");
+        if let Some(status) = &self.status {
+            ui.label(egui::RichText::new(status).weak());
+        }
         ui.separator();
         let s = &mut self.style;
         let slider = |ui: &mut egui::Ui, v: &mut f32, range: std::ops::RangeInclusive<f32>, label: &str| {
@@ -373,6 +406,17 @@ impl eframe::App for App {
         self.sync_theme(ui.ctx());
         self.handle_drop(ui.ctx(), frame);
         egui::Panel::left("controls").exact_size(280.0).show(ui, |ui| {
+            egui::Panel::bottom("settings_io").frame(egui::Frame::NONE.inner_margin(egui::Margin::same(12))).show(ui, |ui| {
+                let style = self.style.capsule();
+                ui.horizontal(|ui| {
+                    if GlassButton::new("Export").style(style).show(ui).clicked() {
+                        self.export_settings();
+                    }
+                    if GlassButton::new("Import").style(style).show(ui).clicked() {
+                        self.import_settings();
+                    }
+                });
+            });
             egui::ScrollArea::vertical().show(ui, |ui| self.controls(ui));
         });
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.scene(ui, frame));

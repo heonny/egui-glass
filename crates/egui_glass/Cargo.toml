@@ -7,8 +7,16 @@ description = "Apple Liquid Glass style widgets for egui, rendered on the GPU vi
 repository = "https://github.com/heonny/egui-glass"
 keywords = ["egui", "gui", "glass", "wgpu", "ui"]
 
+[features]
+## Serialize / deserialize `GlassStyle` with serde.
+serde = ["dep:serde", "egui/serde"]
+
 [dependencies]
 egui = { workspace = true }
 egui-wgpu = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
