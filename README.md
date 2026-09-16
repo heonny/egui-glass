@@ -17,7 +17,8 @@ egui_glass::init(rs, 1 /* msaa samples */);
 egui_glass::set_backdrop(&cc.egui_ctx, rs, &wallpaper_color_image);
 
 // every frame
-egui_glass::show_backdrop(ui, ui.max_rect());   // draws the wallpaper, records its mapping
+egui_glass::show_backdrop(ui, ui.max_rect());   // draws the wallpaper (aspect-fill), records its mapping
+// or place the image yourself: show_backdrop_mapped(ui, image_rect, clip_rect)
 
 let style = GlassStyle::regular();                      // or ::clear(), ::dark(), or tweak fields
 Glass::new(style).show(ui, |ui| { ui.label("card / section / sidebar"); });
@@ -26,9 +27,14 @@ GlassToolbar::new(style).show(ui, |ui| { ui.button("↩"); ui.button("🗑"); })
 paint_glass(ui, rect, &style);                          // building block for your own widgets
 ```
 
-`GlassStyle` fields (all in logical points): `corner_radius` (`f32::INFINITY` = capsule), `blur`,
+`GlassStyle` fields (all in logical points): `corner_radius` (`f32::INFINITY` = capsule),
+`corner_smoothing` (0 = circular arc, 0.6 = the continuous look of iOS corners, 1 = max), `blur`,
 `refraction`, `edge_width`, `chromatic`, `tint`, `brightness`, `saturation`, `specular`, `border`,
 `shadow`, `shadow_radius`.
+
+Corners use the corner-smoothing model popularised by Figma (a Bezier ease into a shorter circular
+arc, spanning `(1 + smoothing) * radius` along each edge), evaluated as a signed-distance field in
+the shader. No Apple curve constants are used.
 
 ## How it works / limits
 
@@ -48,8 +54,15 @@ cargo run -p egui_glass_demo
 ```
 
 Left panel: sliders for every style parameter and the three presets. Drop an image file on the
-window to change the photo; drag the glass panels around. Photos in `examples/asset` are cycled
-with *Next photo*.
+window to change the photo; drag the glass panels around. Sidebar items switch between the photos
+in `examples/asset`; portrait photos are laid out as a tall column on the right, landscape ones
+across the top.
+
+## Trademark note
+
+"Liquid Glass" is Apple's name for its design language; `egui_glass` is an independent
+reimplementation of the *look*, not affiliated with or endorsed by Apple. The term is only used
+descriptively in this documentation.
 
 ## License
 

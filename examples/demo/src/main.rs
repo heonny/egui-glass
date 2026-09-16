@@ -3,11 +3,9 @@ use std::path::{Path, PathBuf};
 use eframe::egui::{self, Color32, ColorImage, Rect, Vec2};
 use egui_glass::{Glass, GlassButton, GlassStyle, GlassToolbar};
 
-/// Fraction of the composed backdrop occupied by the photo; the rest is the
-/// "background extension" (mirrored, whitened photo) under the content area.
-const PHOTO_FRACTION: f32 = 0.55;
 const MAX_PHOTO_SIZE: u32 = 1600;
 const SIDEBAR_WIDTH: f32 = 210.0;
+const PAPER: Color32 = Color32::from_rgb(250, 250, 252);
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -22,6 +20,9 @@ struct App {
     style: GlassStyle,
     selected: usize,
     photos: Vec<PathBuf>,
+    /// Whether the current backdrop was composed for a portrait photo
+    /// (extension to the left) or a landscape one (extension below).
+    portrait: bool,
 }
 
 impl App {
@@ -33,24 +34,26 @@ impl App {
             .map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "jpg" || e == "png")).collect())
             .unwrap_or_default();
         photos.sort();
-        let app = Self { style: GlassStyle::regular(), selected: 0, photos };
-        if let Some(path) = app.photos.first() {
-            app.load_photo(&cc.egui_ctx, rs, path);
+        let selected = std::env::var("LG_PHOTO").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        let mut app = Self { style: GlassStyle::regular(), selected, photos, portrait: false };
+        if let Some(path) = app.photos.get(selected).cloned() {
+            app.load_photo(&cc.egui_ctx, rs, &path);
         }
         app
     }
 
-    fn load_photo(&self, ctx: &egui::Context, rs: &eframe::egui_wgpu::RenderState, path: &Path) {
+    fn load_photo(&mut self, ctx: &egui::Context, rs: &eframe::egui_wgpu::RenderState, path: &Path) {
         match image::open(path) {
             Ok(img) => {
                 let photo = img.thumbnail(MAX_PHOTO_SIZE, MAX_PHOTO_SIZE).to_rgba8();
-                egui_glass::set_backdrop(ctx, rs, &compose_backdrop(&photo));
+                self.portrait = photo.height() > photo.width();
+                egui_glass::set_backdrop(ctx, rs, &compose_backdrop(&photo, self.portrait));
             }
             Err(err) => eprintln!("failed to load {}: {err}", path.display()),
         }
     }
 
-    fn handle_drop(&self, ctx: &egui::Context, frame: &eframe::Frame) {
+    fn handle_drop(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
         if let Some(path) = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone())) {
             self.load_photo(ctx, frame.wgpu_render_state().unwrap(), &path);
         }
@@ -75,6 +78,7 @@ impl App {
         };
         ui.label("Shape");
         slider(ui, &mut s.corner_radius, 0.0..=80.0, "corner radius");
+        slider(ui, &mut s.corner_smoothing, 0.0..=1.0, "corner smoothing");
         ui.label("Lens");
         slider(ui, &mut s.refraction, 0.0..=60.0, "refraction");
         slider(ui, &mut s.edge_width, 1.0..=120.0, "edge width");
@@ -95,36 +99,57 @@ impl App {
     }
 
     fn scene(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
-        let rect = ui.max_rect();
-        egui_glass::show_backdrop(ui, rect);
-        self.content_area(ui, rect);
+        let pane = ui.max_rect();
+        let Some(size) = egui_glass::backdrop_size(ui.ctx()).filter(|s| s.x > 0.0 && s.y > 0.0) else { return };
+        // The photo is half of the composed image along the extension axis.
+        let (image_rect, photo_rect) = if self.portrait {
+            let scale = pane.height() / size.y;
+            let image = Rect::from_min_max(egui::pos2(pane.max.x - size.x * scale, pane.min.y), pane.max);
+            (image, Rect::from_min_max(egui::pos2(image.center().x, pane.min.y), pane.max))
+        } else {
+            let scale = pane.width() / size.x;
+            let image = Rect::from_min_size(pane.min, size * scale);
+            (image, Rect::from_min_max(pane.min, egui::pos2(pane.max.x, image.center().y)))
+        };
+        egui_glass::show_backdrop_mapped(ui, image_rect, pane);
+        let content = if self.portrait {
+            Rect::from_min_max(pane.min, egui::pos2(photo_rect.min.x, pane.max.y))
+        } else {
+            Rect::from_min_max(egui::pos2(pane.min.x, photo_rect.max.y), pane.max)
+        };
+        ui.painter().rect_filled(content, 0.0, PAPER.gamma_multiply(0.93));
+        self.article(ui, content);
 
         let style = self.style;
-        let area = |id: &str, pos: Vec2| egui::Area::new(egui::Id::new(id)).movable(true).default_pos(rect.min + pos).constrain_to(rect);
+        let portrait = self.portrait;
+        let area = |id: &str, pos: egui::Pos2| egui::Area::new(egui::Id::new((id, portrait))).movable(true).default_pos(pos).constrain_to(pane);
 
-        area("sidebar", Vec2::new(16.0, 16.0)).show(ui.ctx(), |ui| {
+        area("sidebar", pane.min + Vec2::splat(16.0)).show(ui.ctx(), |ui| {
             ui.set_width(SIDEBAR_WIDTH);
             Glass::new(GlassStyle::panel()).inner_margin(egui::Margin::symmetric(14, 16)).show(ui, |ui| {
                 ui.set_width(SIDEBAR_WIDTH - 28.0);
-                ui.set_min_height(rect.height() - 64.0);
+                if !portrait {
+                    ui.set_min_height(pane.height() - 64.0);
+                }
                 ui.label(egui::RichText::new("▤").size(18.0));
                 ui.add_space(10.0);
                 for (i, (icon, item)) in [("🗻", "Landmarks"), ("🗺", "Map"), ("📖", "Collections")].iter().enumerate() {
                     if ui.selectable_label(self.selected == i, format!("{icon}  {item}")).clicked() && self.selected != i {
                         self.selected = i;
-                        if let Some(path) = self.photos.get(i % self.photos.len().max(1)) {
-                            self.load_photo(ui.ctx(), frame.wgpu_render_state().unwrap(), path);
+                        if let Some(path) = self.photos.get(i % self.photos.len().max(1)).cloned() {
+                            self.load_photo(ui.ctx(), frame.wgpu_render_state().unwrap(), &path);
                         }
                     }
                 }
             });
         });
 
-        area("back", Vec2::new(SIDEBAR_WIDTH + 32.0, 16.0)).show(ui.ctx(), |ui| {
+        let back_pos = if portrait { photo_rect.min + Vec2::splat(16.0) } else { pane.min + Vec2::new(SIDEBAR_WIDTH + 32.0, 16.0) };
+        area("back", back_pos).show(ui.ctx(), |ui| {
             GlassButton::new(egui::RichText::new("‹").size(22.0)).icon().style(style).show(ui);
         });
 
-        area("toolbar", Vec2::new(rect.width() - 260.0, rect.height() - 72.0)).show(ui.ctx(), |ui| {
+        area("toolbar", pane.max - Vec2::splat(20.0)).pivot(egui::Align2::RIGHT_BOTTOM).show(ui.ctx(), |ui| {
             ui.horizontal(|ui| {
                 GlassToolbar::new(style).show(ui, |ui| {
                     for icon in ["↩", "🗀", "🗑"] {
@@ -137,15 +162,13 @@ impl App {
         });
     }
 
-    /// White article area over the lower part of the backdrop, like Apple's Landmarks sample.
-    fn content_area(&self, ui: &mut egui::Ui, rect: Rect) {
-        let split_y = egui_glass::backdrop_rect(ui.ctx())
-            .map(|full| full.min.y + full.height() * PHOTO_FRACTION)
-            .unwrap_or(rect.center().y);
-        let content = Rect::from_min_max(egui::pos2(rect.min.x, split_y), rect.max);
-        ui.painter().rect_filled(content, 0.0, Color32::from_rgba_unmultiplied(250, 250, 252, 236));
-
-        let column = Rect::from_min_max(egui::pos2(rect.min.x + SIDEBAR_WIDTH + 48.0, split_y + 20.0), rect.max - Vec2::new(40.0, 80.0));
+    /// Article text inside the paper-white content area (beside or below the photo).
+    fn article(&self, ui: &mut egui::Ui, content: Rect) {
+        let column = if self.portrait {
+            Rect::from_min_max(content.min + Vec2::new(24.0, 200.0), content.max - Vec2::new(24.0, 24.0))
+        } else {
+            Rect::from_min_max(content.min + Vec2::new(SIDEBAR_WIDTH + 48.0, 20.0), content.max - Vec2::new(40.0, 80.0))
+        };
         let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(column));
         ui.heading(egui::RichText::new("Mount Fuji").size(26.0).strong());
         ui.add_space(6.0);
@@ -172,25 +195,33 @@ impl eframe::App for App {
     }
 }
 
-/// Photo on top; below it Apple's "background extension": the photo mirrored
-/// downwards, heavily blurred and faded into paper white, so glass over the
+/// The photo plus an equally sized "background extension" on one side
+/// (below for landscape, left for portrait): the photo mirrored across that
+/// edge, heavily blurred and faded into paper white, so glass over the
 /// content area shows only a soft colour wash.
-fn compose_backdrop(photo: &image::RgbaImage) -> ColorImage {
+fn compose_backdrop(photo: &image::RgbaImage, portrait: bool) -> ColorImage {
     use image::imageops::{resize, FilterType};
     let (w, h) = (photo.width(), photo.height());
-    let ext = (h as f32 * (1.0 - PHOTO_FRACTION) / PHOTO_FRACTION).round() as u32;
     let soft = resize(&resize(photo, (w / 24).max(1), (h / 24).max(1), FilterType::Triangle), w, h, FilterType::Triangle);
-    let paper = [250.0, 250.0, 252.0];
-    let mut pixels = Vec::with_capacity((w * (h + ext)) as usize);
-    for y in 0..h + ext {
-        for x in 0..w {
-            let px = if y < h {
-                let p = photo.get_pixel(x, y).0;
+    let (out_w, out_h) = if portrait { (2 * w, h) } else { (w, 2 * h) };
+    let paper = [PAPER.r() as f32, PAPER.g() as f32, PAPER.b() as f32];
+    let mut pixels = Vec::with_capacity((out_w * out_h) as usize);
+    for y in 0..out_h {
+        for x in 0..out_w {
+            // Distance into the extension (0 = still on the photo) and the source pixel
+            // mirrored across the seam: portrait extension is x < w, landscape is y >= h.
+            let (dist, sx, sy) = if portrait {
+                (w.saturating_sub(x), (w - 1).saturating_sub(x), y)
+            } else {
+                (y.saturating_sub(h - 1), x, (2 * h - 1).saturating_sub(y))
+            };
+            let px = if dist == 0 {
+                let p = photo.get_pixel(if portrait { x - w } else { x }, y).0;
                 Color32::from_rgb(p[0], p[1], p[2])
             } else {
-                let src_y = (h - 1).saturating_sub(y - h); // mirror downwards from the bottom edge
-                let p = soft.get_pixel(x, src_y).0;
-                let fade = ((y - h) as f32 / (ext as f32 * 0.2)).min(1.0); // 0 at the seam -> 1 after 20 %
+                let p = soft.get_pixel(sx, sy).0;
+                let extent = if portrait { w } else { h } as f32;
+                let fade = (dist as f32 / (extent * 0.2)).min(1.0); // 0 at the seam -> 1 after 20 %
                 let paper_amount = 0.6 + 0.3 * fade;
                 let mix = |c: u8, paper: f32| (c as f32 * (1.0 - paper_amount) + paper * paper_amount) as u8;
                 Color32::from_rgb(mix(p[0], paper[0]), mix(p[1], paper[1]), mix(p[2], paper[2]))
@@ -198,5 +229,5 @@ fn compose_backdrop(photo: &image::RgbaImage) -> ColorImage {
             pixels.push(px);
         }
     }
-    ColorImage::new([w as usize, (h + ext) as usize], pixels)
+    ColorImage::new([out_w as usize, out_h as usize], pixels)
 }
