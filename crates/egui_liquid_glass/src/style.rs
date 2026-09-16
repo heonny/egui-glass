@@ -1,0 +1,126 @@
+use egui::Color32;
+
+/// Visual parameters of a glass surface. All lengths are in logical points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlassStyle {
+    /// Corner radius. Use [`f32::INFINITY`] for a capsule.
+    pub corner_radius: f32,
+    /// Backdrop blur radius.
+    pub blur: f32,
+    /// Maximum displacement of the backdrop at the edge (lens effect).
+    pub refraction: f32,
+    /// Width of the lens zone measured inwards from the edge.
+    pub edge_width: f32,
+    /// Chromatic aberration inside the lens zone, 0..=1.
+    pub chromatic: f32,
+    /// Tint mixed over the backdrop; alpha is the mix amount.
+    pub tint: Color32,
+    /// Backdrop brightness multiplier.
+    pub brightness: f32,
+    /// Backdrop saturation multiplier.
+    pub saturation: f32,
+    /// Specular rim/sheen strength, 0..=1.
+    pub specular: f32,
+    /// Inner border strength, 0..=1.
+    pub border: f32,
+    /// Drop shadow strength, 0..=1.
+    pub shadow: f32,
+    /// Drop shadow blur radius.
+    pub shadow_radius: f32,
+}
+
+impl Default for GlassStyle {
+    fn default() -> Self {
+        Self::regular()
+    }
+}
+
+impl GlassStyle {
+    /// Apple "regular" glass: legible, slightly frosted.
+    pub const fn regular() -> Self {
+        Self {
+            corner_radius: 22.0,
+            blur: 12.0,
+            refraction: 14.0,
+            edge_width: 26.0,
+            chromatic: 0.2,
+            tint: Color32::from_rgba_unmultiplied_const(255, 255, 255, 60),
+            brightness: 1.05,
+            saturation: 1.2,
+            specular: 0.7,
+            border: 0.8,
+            shadow: 0.16,
+            shadow_radius: 22.0,
+        }
+    }
+
+    /// Apple "clear" glass: almost no frost, strong lensing.
+    pub const fn clear() -> Self {
+        Self {
+            blur: 2.0,
+            refraction: 22.0,
+            edge_width: 34.0,
+            chromatic: 0.35,
+            tint: Color32::from_rgba_unmultiplied_const(255, 255, 255, 18),
+            ..Self::regular()
+        }
+    }
+
+    /// Flat frosted panel for large surfaces (sidebars, sheets): heavy blur,
+    /// almost no lensing, soft light. Apple keeps big glass calm.
+    pub const fn panel() -> Self {
+        Self {
+            blur: 36.0,
+            refraction: 3.0,
+            edge_width: 10.0,
+            chromatic: 0.0,
+            tint: Color32::from_rgba_unmultiplied_const(255, 255, 255, 120),
+            brightness: 1.0,
+            saturation: 1.0,
+            specular: 0.2,
+            border: 0.45,
+            shadow: 0.12,
+            shadow_radius: 28.0,
+            ..Self::regular()
+        }
+    }
+
+    /// Dark tinted glass for light content.
+    pub const fn dark() -> Self {
+        Self {
+            tint: Color32::from_rgba_unmultiplied_const(0, 0, 0, 90),
+            brightness: 0.9,
+            specular: 0.5,
+            border: 0.5,
+            ..Self::regular()
+        }
+    }
+
+    pub const fn with_corner_radius(mut self, radius: f32) -> Self {
+        self.corner_radius = radius;
+        self
+    }
+
+    pub const fn capsule(self) -> Self {
+        self.with_corner_radius(f32::INFINITY)
+    }
+
+    pub const fn with_tint(mut self, tint: Color32) -> Self {
+        self.tint = tint;
+        self
+    }
+
+    /// Variant used while the pointer is over an interactive glass widget.
+    pub fn hovered(mut self) -> Self {
+        self.brightness *= 1.08;
+        self.specular = (self.specular + 0.15).min(1.0);
+        self
+    }
+
+    /// Variant used while an interactive glass widget is pressed.
+    pub fn pressed(mut self) -> Self {
+        self.brightness *= 0.9;
+        self.tint = self.tint.gamma_multiply(1.3);
+        self
+    }
+}

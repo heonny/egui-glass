@@ -1,0 +1,293 @@
+use std::sync::atomic::{AtomicU32, Ordering};
+
+use egui::Rect;
+use egui_wgpu::{CallbackResources, CallbackTrait, RenderState, ScreenDescriptor};
+use wgpu::util::DeviceExt;
+
+use crate::GlassStyle;
+
+const SLOT_SIZE: u64 = 256; // >= min_uniform_buffer_offset_alignment on all backends
+const INITIAL_SLOTS: u32 = 64;
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct Uniforms {
+    rect_min: [f32; 2],
+    rect_max: [f32; 2],
+    bd_min: [f32; 2],
+    bd_max: [f32; 2],
+    tint: [f32; 4],
+    radius: f32,
+    blur: f32,
+    refraction: f32,
+    edge_width: f32,
+    chroma: f32,
+    brightness: f32,
+    saturation: f32,
+    specular: f32,
+    border: f32,
+    shadow: f32,
+    shadow_radius: f32,
+    srgb_out: f32,
+    light_dir: [f32; 2],
+    max_lod: f32,
+    _pad: f32,
+}
+
+/// GPU state shared by every glass surface. Lives in egui-wgpu's `CallbackResources`.
+pub(crate) struct GlassResources {
+    pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    backdrop_view: wgpu::TextureView,
+    max_lod: f32,
+    uniforms: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    capacity: u32,
+    next_slot: u32,
+    last_pass: u64,
+    srgb_out: bool,
+}
+
+impl GlassResources {
+    fn new(render_state: &RenderState, msaa_samples: u32) -> Self {
+        let device = &render_state.device;
+        let shader = device.create_shader_module(wgpu::include_wgsl!("glass.wgsl"));
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("liquid_glass"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<Uniforms>() as u64),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("liquid_glass"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("liquid_glass"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: render_state.target_format,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState { count: msaa_samples.max(1), ..Default::default() },
+            multiview_mask: None,
+            cache: None,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("liquid_glass"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+        // 1x1 mid-grey placeholder until `set_backdrop` is called.
+        let placeholder = device.create_texture_with_data(
+            &render_state.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("liquid_glass_placeholder"),
+                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            Default::default(),
+            &[128, 128, 128, 255],
+        );
+        let backdrop_view = placeholder.create_view(&Default::default());
+        let uniforms = Self::create_uniforms(device, INITIAL_SLOTS);
+        let bind_group = Self::create_bind_group(device, &layout, &uniforms, &backdrop_view, &sampler);
+        Self {
+            pipeline,
+            layout,
+            sampler,
+            backdrop_view,
+            max_lod: 0.0,
+            uniforms,
+            bind_group,
+            capacity: INITIAL_SLOTS,
+            next_slot: 0,
+            last_pass: u64::MAX,
+            srgb_out: render_state.target_format.is_srgb(),
+        }
+    }
+
+    fn create_uniforms(device: &wgpu::Device, slots: u32) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("liquid_glass_uniforms"),
+            size: SLOT_SIZE * slots as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        })
+    }
+
+    fn create_bind_group(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        uniforms: &wgpu::Buffer,
+        view: &wgpu::TextureView,
+        sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("liquid_glass"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: uniforms,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(std::mem::size_of::<Uniforms>() as u64),
+                    }),
+                },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
+            ],
+        })
+    }
+
+    pub(crate) fn set_backdrop(&mut self, device: &wgpu::Device, view: wgpu::TextureView, mip_levels: u32) {
+        self.backdrop_view = view;
+        self.max_lod = mip_levels.saturating_sub(1) as f32;
+        self.bind_group = Self::create_bind_group(device, &self.layout, &self.uniforms, &self.backdrop_view, &self.sampler);
+    }
+
+    /// Hands out the next uniform slot for this pass, growing the buffer if needed.
+    /// Earlier slots of this pass are copied over so their callbacks still paint.
+    fn alloc_slot(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, pass_nr: u64) -> u32 {
+        if self.last_pass != pass_nr {
+            self.last_pass = pass_nr;
+            self.next_slot = 0;
+        }
+        if self.next_slot >= self.capacity {
+            let old = std::mem::replace(&mut self.uniforms, Self::create_uniforms(device, self.capacity * 2));
+            encoder.copy_buffer_to_buffer(&old, 0, &self.uniforms, 0, SLOT_SIZE * self.capacity as u64);
+            self.capacity *= 2;
+            self.bind_group = Self::create_bind_group(device, &self.layout, &self.uniforms, &self.backdrop_view, &self.sampler);
+        }
+        let slot = self.next_slot;
+        self.next_slot += 1;
+        slot
+    }
+}
+
+/// Registers the glass pipeline with egui-wgpu. Call once, e.g. from `App::new`.
+/// `msaa_samples` must match `NativeOptions::multisampling` (0 or 1 when unset).
+pub fn init(render_state: &RenderState, msaa_samples: u32) {
+    let resources = GlassResources::new(render_state, msaa_samples);
+    render_state.renderer.write().callback_resources.insert(resources);
+}
+
+/// One glass surface. Created by the widgets; see [`crate::paint_glass`].
+pub(crate) struct GlassCallback {
+    pub rect: Rect,
+    pub backdrop_rect: Rect,
+    pub style: GlassStyle,
+    pub pass_nr: u64,
+    slot: AtomicU32,
+}
+
+impl GlassCallback {
+    pub fn new(rect: Rect, backdrop_rect: Rect, style: GlassStyle, pass_nr: u64) -> Self {
+        Self { rect, backdrop_rect, style, pass_nr, slot: AtomicU32::new(0) }
+    }
+
+    fn uniforms(&self, ppp: f32, srgb_out: bool, max_lod: f32) -> Uniforms {
+        let s = &self.style;
+        let px = |r: Rect| ([r.min.x * ppp, r.min.y * ppp], [r.max.x * ppp, r.max.y * ppp]);
+        let (rect_min, rect_max) = px(self.rect);
+        let (bd_min, bd_max) = px(self.backdrop_rect);
+        // Color32 is premultiplied; the shader mixes towards a straight colour.
+        let [r, g, b, a] = s.tint.to_normalized_gamma_f32();
+        let tint = if a > 0.0 { [r / a, g / a, b / a, a] } else { [0.0; 4] };
+        let light = egui::vec2(-0.45, -1.0).normalized();
+        Uniforms {
+            rect_min,
+            rect_max,
+            bd_min,
+            bd_max,
+            tint,
+            radius: s.corner_radius * ppp,
+            blur: s.blur * ppp,
+            refraction: s.refraction * ppp,
+            edge_width: s.edge_width * ppp,
+            chroma: s.chromatic,
+            brightness: s.brightness,
+            saturation: s.saturation,
+            specular: s.specular,
+            border: s.border,
+            shadow: s.shadow,
+            shadow_radius: s.shadow_radius * ppp,
+            srgb_out: srgb_out as u32 as f32,
+            light_dir: [light.x, light.y],
+            max_lod,
+            _pad: 0.0,
+        }
+    }
+}
+
+impl CallbackTrait for GlassCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        screen: &ScreenDescriptor,
+        encoder: &mut wgpu::CommandEncoder,
+        resources: &mut CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let Some(res) = resources.get_mut::<GlassResources>() else { return Vec::new() };
+        let slot = res.alloc_slot(device, encoder, self.pass_nr);
+        self.slot.store(slot, Ordering::Relaxed);
+        let uniforms = self.uniforms(screen.pixels_per_point, res.srgb_out, res.max_lod);
+        queue.write_buffer(&res.uniforms, SLOT_SIZE * slot as u64, bytemuck::bytes_of(&uniforms));
+        Vec::new()
+    }
+
+    fn paint(&self, _info: egui::PaintCallbackInfo, pass: &mut wgpu::RenderPass<'static>, resources: &CallbackResources) {
+        let Some(res) = resources.get::<GlassResources>() else { return };
+        let offset = (SLOT_SIZE * self.slot.load(Ordering::Relaxed) as u64) as u32;
+        pass.set_pipeline(&res.pipeline);
+        pass.set_bind_group(0, &res.bind_group, &[offset]);
+        pass.draw(0..3, 0..1);
+    }
+}

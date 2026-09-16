@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/egui_liquid_glass", "examples/demo"]
+
+[workspace.dependencies]
+egui = "0.35"
+egui-wgpu = "0.35"
+eframe = { version = "0.35", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11"] }
+wgpu = "29"
+bytemuck = { version = "1", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[profile.dev]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3

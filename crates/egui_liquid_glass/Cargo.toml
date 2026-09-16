@@ -1,0 +1,14 @@
+[package]
+name = "egui_liquid_glass"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Apple Liquid Glass style widgets for egui, rendered on the GPU via egui-wgpu"
+repository = "https://github.com/heonny/egui-liquid-glass"
+keywords = ["egui", "gui", "glass", "wgpu", "ui"]
+
+[dependencies]
+egui = { workspace = true }
+egui-wgpu = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
