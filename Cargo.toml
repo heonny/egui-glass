@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/egui_liquid_glass", "examples/demo"]
+members = ["crates/egui_glass", "examples/demo"]
 
 [workspace.dependencies]
 egui = "0.35"

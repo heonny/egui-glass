@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Color32, ColorImage, Rect, Vec2};
-use egui_liquid_glass::{Glass, GlassButton, GlassStyle, GlassToolbar};
+use egui_glass::{Glass, GlassButton, GlassStyle, GlassToolbar};
 
 /// Fraction of the composed backdrop occupied by the photo; the rest is the
 /// "background extension" (mirrored, whitened photo) under the content area.
@@ -12,10 +12,10 @@ const SIDEBAR_WIDTH: f32 = 210.0;
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
-        viewport: egui::ViewportBuilder::default().with_inner_size([1180.0, 800.0]).with_title("egui liquid glass"),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1180.0, 800.0]).with_title("egui_glass demo"),
         ..Default::default()
     };
-    eframe::run_native("egui_liquid_glass_demo", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
+    eframe::run_native("egui_glass_demo", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
 }
 
 struct App {
@@ -28,7 +28,7 @@ impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::light());
         let rs = cc.wgpu_render_state.as_ref().expect("demo requires the wgpu backend");
-        egui_liquid_glass::init(rs, 1);
+        egui_glass::init(rs, 1);
         let mut photos: Vec<PathBuf> = std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../asset"))
             .map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "jpg" || e == "png")).collect())
             .unwrap_or_default();
@@ -44,7 +44,7 @@ impl App {
         match image::open(path) {
             Ok(img) => {
                 let photo = img.thumbnail(MAX_PHOTO_SIZE, MAX_PHOTO_SIZE).to_rgba8();
-                egui_liquid_glass::set_backdrop(ctx, rs, &compose_backdrop(&photo));
+                egui_glass::set_backdrop(ctx, rs, &compose_backdrop(&photo));
             }
             Err(err) => eprintln!("failed to load {}: {err}", path.display()),
         }
@@ -57,7 +57,7 @@ impl App {
     }
 
     fn controls(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Liquid Glass");
+        ui.heading("egui_glass");
         ui.label("Sliders drive the buttons, toolbar and back button. The sidebar uses the fixed flat `GlassStyle::panel()`.");
         ui.label("Sidebar items switch the photo; drop an image onto the window to load your own. Drag the glass panels around.");
         ui.add_space(8.0);
@@ -96,7 +96,7 @@ impl App {
 
     fn scene(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         let rect = ui.max_rect();
-        egui_liquid_glass::show_backdrop(ui, rect);
+        egui_glass::show_backdrop(ui, rect);
         self.content_area(ui, rect);
 
         let style = self.style;
@@ -139,7 +139,7 @@ impl App {
 
     /// White article area over the lower part of the backdrop, like Apple's Landmarks sample.
     fn content_area(&self, ui: &mut egui::Ui, rect: Rect) {
-        let split_y = egui_liquid_glass::backdrop_rect(ui.ctx())
+        let split_y = egui_glass::backdrop_rect(ui.ctx())
             .map(|full| full.min.y + full.height() * PHOTO_FRACTION)
             .unwrap_or(rect.center().y);
         let content = Rect::from_min_max(egui::pos2(rect.min.x, split_y), rect.max);

@@ -14,7 +14,7 @@ pub(crate) struct BackdropState {
 }
 
 fn state_id() -> Id {
-    Id::new("egui_liquid_glass::backdrop")
+    Id::new("egui_glass::backdrop")
 }
 
 pub(crate) fn backdrop_state(ctx: &Context) -> Option<BackdropState> {
@@ -33,7 +33,7 @@ pub fn set_backdrop(ctx: &Context, render_state: &RenderState, image: &ColorImag
     let size = image.size;
     let mips = cpu_mip_chain(image);
     let texture = render_state.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("liquid_glass_backdrop"),
+        label: Some("egui_glass_backdrop"),
         size: wgpu::Extent3d { width: size[0] as u32, height: size[1] as u32, depth_or_array_layers: 1 },
         mip_level_count: mips.len() as u32,
         sample_count: 1,
@@ -65,7 +65,7 @@ pub fn set_backdrop(ctx: &Context, render_state: &RenderState, image: &ColorImag
     let resources: &mut GlassResources = renderer
         .callback_resources
         .get_mut()
-        .expect("egui_liquid_glass::init must be called before set_backdrop");
+        .expect("egui_glass::init must be called before set_backdrop");
     resources.set_backdrop(&render_state.device, view, mips.len() as u32);
     drop(renderer);
 

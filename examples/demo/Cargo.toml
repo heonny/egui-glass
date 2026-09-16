@@ -1,5 +1,5 @@
 [package]
-name = "liquid_glass_demo"
+name = "egui_glass_demo"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -7,5 +7,5 @@ publish = false
 [dependencies]
 egui = { workspace = true }
 eframe = { workspace = true }
-egui_liquid_glass = { path = "../../crates/egui_liquid_glass" }
+egui_glass = { path = "../../crates/egui_glass" }
 image = { workspace = true }

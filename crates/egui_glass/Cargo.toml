@@ -1,10 +1,10 @@
 [package]
-name = "egui_liquid_glass"
+name = "egui_glass"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Apple Liquid Glass style widgets for egui, rendered on the GPU via egui-wgpu"
-repository = "https://github.com/heonny/egui-liquid-glass"
+repository = "https://github.com/heonny/egui-glass"
 keywords = ["egui", "gui", "glass", "wgpu", "ui"]
 
 [dependencies]

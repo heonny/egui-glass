@@ -1,4 +1,4 @@
-# egui_liquid_glass
+# egui_glass
 
 Apple *Liquid Glass* style surfaces for [egui](https://github.com/emilk/egui), rendered on the GPU
 through `egui-wgpu` paint callbacks. One fragment shader does everything: rounded-rect SDF,
@@ -13,11 +13,11 @@ beyond `egui`, `egui-wgpu`, `wgpu`, `bytemuck`.
 ```rust
 // once, e.g. in App::new (eframe with the wgpu backend)
 let rs = cc.wgpu_render_state.as_ref().unwrap();
-egui_liquid_glass::init(rs, 1 /* msaa samples */);
-egui_liquid_glass::set_backdrop(&cc.egui_ctx, rs, &wallpaper_color_image);
+egui_glass::init(rs, 1 /* msaa samples */);
+egui_glass::set_backdrop(&cc.egui_ctx, rs, &wallpaper_color_image);
 
 // every frame
-egui_liquid_glass::show_backdrop(ui, ui.max_rect());   // draws the wallpaper, records its mapping
+egui_glass::show_backdrop(ui, ui.max_rect());   // draws the wallpaper, records its mapping
 
 let style = GlassStyle::regular();                      // or ::clear(), ::dark(), or tweak fields
 Glass::new(style).show(ui, |ui| { ui.label("card / section / sidebar"); });
@@ -44,7 +44,7 @@ backdrop is uploaded once with a CPU-generated mip chain, and blur is a 5-tap sa
 ## Demo
 
 ```bash
-cargo run -p liquid_glass_demo
+cargo run -p egui_glass_demo
 ```
 
 Left panel: sliders for every style parameter and the three presets. Drop an image file on the

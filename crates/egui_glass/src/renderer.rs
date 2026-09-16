@@ -54,7 +54,7 @@ impl GlassResources {
         let device = &render_state.device;
         let shader = device.create_shader_module(wgpu::include_wgsl!("glass.wgsl"));
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("liquid_glass"),
+            label: Some("egui_glass"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -85,12 +85,12 @@ impl GlassResources {
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("liquid_glass"),
+            label: Some("egui_glass"),
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("liquid_glass"),
+            label: Some("egui_glass"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: Default::default() },
             fragment: Some(wgpu::FragmentState {
@@ -110,7 +110,7 @@ impl GlassResources {
             cache: None,
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("liquid_glass"),
+            label: Some("egui_glass"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
@@ -122,7 +122,7 @@ impl GlassResources {
         let placeholder = device.create_texture_with_data(
             &render_state.queue,
             &wgpu::TextureDescriptor {
-                label: Some("liquid_glass_placeholder"),
+                label: Some("egui_glass_placeholder"),
                 size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -154,7 +154,7 @@ impl GlassResources {
 
     fn create_uniforms(device: &wgpu::Device, slots: u32) -> wgpu::Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("liquid_glass_uniforms"),
+            label: Some("egui_glass_uniforms"),
             size: SLOT_SIZE * slots as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
@@ -169,7 +169,7 @@ impl GlassResources {
         sampler: &wgpu::Sampler,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("liquid_glass"),
+            label: Some("egui_glass"),
             layout,
             entries: &[
                 wgpu::BindGroupEntry {

@@ -578,6 +578,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui_glass"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "egui",
+ "egui-wgpu",
+ "wgpu",
+]
+
+[[package]]
+name = "egui_glass_demo"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "egui_glass",
+ "image",
+]
+
+[[package]]
 name = "egui_glow"
 version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -590,16 +610,6 @@ dependencies = [
  "memoffset",
  "profiling",
  "winit",
-]
-
-[[package]]
-name = "egui_liquid_glass"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "egui",
- "egui-wgpu",
- "wgpu",
 ]
 
 [[package]]
@@ -1334,16 +1344,6 @@ name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
-
-[[package]]
-name = "liquid_glass_demo"
-version = "0.1.0"
-dependencies = [
- "eframe",
- "egui",
- "egui_liquid_glass",
- "image",
-]
 
 [[package]]
 name = "litemap"

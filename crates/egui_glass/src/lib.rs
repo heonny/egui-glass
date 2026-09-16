@@ -4,12 +4,12 @@
 //! ```ignore
 //! # fn setup(cc: &eframe::CreationContext<'_>, wallpaper: egui::ColorImage) {
 //! let rs = cc.wgpu_render_state.as_ref().unwrap();
-//! egui_liquid_glass::init(rs, 1);
-//! egui_liquid_glass::set_backdrop(&cc.egui_ctx, rs, &wallpaper);
+//! egui_glass::init(rs, 1);
+//! egui_glass::set_backdrop(&cc.egui_ctx, rs, &wallpaper);
 //! # }
 //! # fn ui(ui: &mut egui::Ui) {
-//! egui_liquid_glass::show_backdrop(ui, ui.max_rect());
-//! egui_liquid_glass::Glass::new(egui_liquid_glass::GlassStyle::regular()).show(ui, |ui| {
+//! egui_glass::show_backdrop(ui, ui.max_rect());
+//! egui_glass::Glass::new(egui_glass::GlassStyle::regular()).show(ui, |ui| {
 //!     ui.label("Hello");
 //! });
 //! # }
