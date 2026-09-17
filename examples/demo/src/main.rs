@@ -306,7 +306,7 @@ impl App {
 
         area("sidebar", pane.min + Vec2::splat(16.0)).show(ui.ctx(), |ui| {
             ui.set_width(SIDEBAR_WIDTH);
-            Glass::new(if self.dark { GlassStyle::panel_dark() } else { GlassStyle::panel() }).inner_margin(egui::Margin::symmetric(14, 16)).show(ui, |ui| {
+            (if self.dark { Glass::panel_dark() } else { Glass::panel() }).inner_margin(egui::Margin::symmetric(14, 16)).show(ui, |ui| {
                 ui.set_width(SIDEBAR_WIDTH - 28.0);
                 if !portrait {
                     ui.set_min_height(pane.height() - 64.0);

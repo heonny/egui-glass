@@ -1,0 +1,113 @@
+# Guide: putting glass into your app
+
+This is the short path. Everything here has a longer explanation in the [reference](reference.md).
+
+## 1. Requirements
+
+- `eframe` 0.35 with the **wgpu** feature (`renderer: eframe::Renderer::Wgpu`). The glow backend
+  is not supported.
+- Rust 1.92 or newer.
+
+```toml
+egui_glass = "0.1"                                        # add features = ["serde"] to save styles
+```
+
+## 2. Register once
+
+In `App::new` (or wherever you have the `CreationContext`):
+
+```rust
+let rs = cc.wgpu_render_state.as_ref().unwrap();
+egui_glass::init(rs, 1);                 // 1 = msaa samples; match NativeOptions::multisampling (0 counts as 1)
+```
+
+## 3. Give the glass something to refract
+
+egui paints in one pass, so glass cannot read what is already on screen. It refracts a
+**backdrop** you provide. Two ways:
+
+**A. A backdrop image** (a wallpaper, a photo, a gradient). Upload once, draw every frame:
+
+```rust
+egui_glass::set_backdrop(&cc.egui_ctx, rs, &color_image);      // once, or whenever it changes
+
+// every frame, before the glass:
+egui_glass::show_backdrop(ui, ui.max_rect());                  // aspect-fill into a rect
+// or place it yourself; `page_color` is what glass shows outside the image:
+egui_glass::show_backdrop_mapped(ui, image_rect, clip_rect, page_color);
+```
+
+Anything egui draws on top of the backdrop (text, widgets) shows through the glass as the page
+colour, not refracted. For most apps this is fine and it is the cheap path.
+
+**B. Live backdrop**: glass refracts everything underneath, text included. Your page content is
+laid out and drawn a second time off screen (see the reference for cost and caveats):
+
+```rust
+// once, after init and before set_backdrop / register_native_texture
+let live = egui_glass::LiveBackdrop::new(rs, Some(font_definitions));
+
+// every frame: page inside the closure, glass outside it
+live.run(ui, page_color, |ui| my_page(ui));
+Glass::panel().show(ui, |ui| { /* floats over the page */ });
+```
+
+Images drawn inside the page must be registered with `egui_glass::register_native_texture`
+(`set_backdrop` does this for you) so the off-screen pass can draw them.
+
+## 4. Draw glass
+
+```rust
+use egui_glass::{Glass, GlassButton, GlassStyle, GlassToolbar};
+
+Glass::default().show(ui, |ui| { ui.label("card / section"); });      // small surface
+Glass::panel().show(ui, |ui| { ui.label("sidebar / sheet"); });       // large frosted sheet
+GlassButton::new("Continue").show(ui);                                 // capsule button
+GlassButton::new("‹").icon().show(ui);                                 // round icon button
+GlassToolbar::default().show(ui, |ui| { let _ = ui.button("Undo"); }); // capsule bar of flat buttons
+egui_glass::paint_glass(ui, rect, &GlassStyle::regular());             // just the surface
+```
+
+Glass usually floats: put it in an `egui::Area` (with `.constrain(false)`, see the reference for
+why) or paint it after the content. Never put glass inside glass; controls inside a `Glass` are
+drawn flat automatically.
+
+## 5. Pick a preset, tweak if needed
+
+| Preset | Use for | Look |
+|---|---|---|
+| `GlassStyle::regular()` (default) | buttons, toolbars, cards | lightly frosted, thin bevel, faint halo |
+| `GlassStyle::clear()` | small controls over rich imagery | almost no frost, strong lensing |
+| `GlassStyle::panel()` | sidebars, sheets, large containers | plain frosted sheet, no highlights |
+| `GlassStyle::dark()` / `panel_dark()` | dark themes | same, dimmed |
+
+Tweak with the builders or fields:
+
+```rust
+let style = GlassStyle::regular().with_corner_radius(12.0).with_tint(Color32::from_rgba_unmultiplied(255, 255, 255, 90));
+let style = GlassStyle { blur: 20.0, ..GlassStyle::panel() };
+Glass::new(style).inner_margin(egui::Margin::same(20)).show(ui, |ui| { /* … */ });
+```
+
+Text on glass switches to white automatically when the tint is dark (`style.is_dark()`).
+
+## 6. Dark theme
+
+Use `panel_dark()` / `dark()` and give the glass a dark page colour (`show_backdrop_mapped`'s
+`page_color`, or the live backdrop's clear colour). The demo flips the whole egui theme when the
+tint is dark; see `examples/demo/src/main.rs` (`apply_visuals`).
+
+## 7. Save and load a look
+
+With the `serde` feature `GlassStyle` is `Serialize + Deserialize` (missing fields take the
+defaults), so a style can live in your settings file. The demo's Export / Import buttons do this
+with JSON.
+
+## Checklist when something looks off
+
+- Glass is plain white / page-coloured: nothing registered underneath — call `set_backdrop` and
+  draw it with `show_backdrop*`, or use `LiveBackdrop`.
+- Photo missing through live glass: register its texture with `register_native_texture`.
+- A floating panel lands in the wrong place on the first frame: `Area::constrain(false)`.
+- Wheel does not scroll under a floating panel: egui routes the wheel to the topmost layer; see
+  the demo's forwarding in `scene()`.

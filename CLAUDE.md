@@ -94,6 +94,14 @@ vX.Y.Z`: `.github/workflows/release.yml` checks the tag against the version and 
 `CARGO_REGISTRY_TOKEN` secret. CI (`ci.yml`) runs library tests/clippy on Linux, macOS and Windows
 and builds the demo on macOS and Windows.
 
+## Docs
+
+Three tiers, keep them in this shape: root `README.md` = logo, one paragraph, quick start,
+links; `docs/guide.md` = the short path to using it in an app; `docs/reference.md` = everything
+(API tables, every `GlassStyle` field with preset defaults, shader, limits, demo, packaging,
+releases). When a default or an API changes, update the reference table and, if it touches the
+short path, the guide.
+
 ## Conventions
 
 - Commits: `<type>: <title>` (feat, fix, refactor, docs, test, chore), imperative, no emojis, no

@@ -60,9 +60,26 @@ pub struct Glass {
     inner_margin: Margin,
 }
 
+impl Default for Glass {
+    /// [`GlassStyle::regular`]: the tuned default for cards and small surfaces.
+    fn default() -> Self {
+        Self::new(GlassStyle::regular())
+    }
+}
+
 impl Glass {
     pub fn new(style: GlassStyle) -> Self {
         Self { style, inner_margin: Margin::same(16) }
+    }
+
+    /// A large frosted sheet (sidebar, sheet): [`GlassStyle::panel`].
+    pub fn panel() -> Self {
+        Self::new(GlassStyle::panel())
+    }
+
+    /// [`Glass::panel`] for dark themes.
+    pub fn panel_dark() -> Self {
+        Self::new(GlassStyle::panel_dark())
     }
 
     pub fn inner_margin(mut self, margin: impl Into<Margin>) -> Self {
@@ -151,6 +168,12 @@ impl GlassButton {
 pub struct GlassToolbar {
     style: GlassStyle,
     spacing: f32,
+}
+
+impl Default for GlassToolbar {
+    fn default() -> Self {
+        Self::new(GlassStyle::regular())
+    }
 }
 
 impl GlassToolbar {
