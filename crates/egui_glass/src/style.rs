@@ -95,9 +95,11 @@ impl GlassStyle {
             saturation: 1.05,
             specular: 0.08,
             border: 0.15,
-            shadow: 0.0,
-            shadow_radius: 24.0,
-            shadow_offset: 4.0,
+            // A tight, faint contact shadow: the iPad sidebar over white content shows a
+            // few px of soft darkening at its edge, nothing wide.
+            shadow: 0.06,
+            shadow_radius: 10.0,
+            shadow_offset: 2.0,
             ..Self::regular()
         }
     }
