@@ -214,8 +214,10 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // that made the surface read as a dome.
     let rim = pow(t, 10.0) * (0.3 + 0.7 * curved) * (1.0 * max(ndl, 0.0) + 0.6 * max(-ndl, 0.0));
     col += vec3<f32>(1.0) * u.specular * rim;
-    // A faint dark line at the very edge on the unlit side reads as the plate's thickness.
-    col *= 1.0 - 0.1 * u.specular * pow(t, 14.0) * (1.0 - max(ndl, 0.0));
+    // A faint dark contour at the very edge reads as the plate's thickness and is what
+    // separates glass from a white page (iOS shows no drop shadow there); a bit
+    // stronger on the unlit side.
+    col *= 1.0 - 0.12 * pow(t, 14.0) * (0.5 + 0.5 * (1.0 - max(ndl, 0.0)));
 
     // Hairline inner border, a little brighter on the lit side.
     let ring = 1.0 - smoothstep(0.0, 1.2, abs(d + 0.7));
