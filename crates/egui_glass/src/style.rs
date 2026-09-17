@@ -60,9 +60,10 @@ impl GlassStyle {
             saturation: 1.2,
             specular: 0.5,
             border: 0.3,
-            shadow: 0.0,
-            shadow_radius: 22.0,
-            shadow_offset: 8.0,
+            // iOS on a white page: no drop shadow, just a faint wide halo (Photos toolbar).
+            shadow: 0.045,
+            shadow_radius: 18.0,
+            shadow_offset: 3.0,
             shadow_spread: 0.0,
         }
     }
@@ -93,9 +94,9 @@ impl GlassStyle {
             saturation: 1.05,
             specular: 0.3,
             border: 0.25,
-            shadow: 0.0,
-            shadow_radius: 28.0,
-            shadow_offset: 10.0,
+            shadow: 0.04,
+            shadow_radius: 24.0,
+            shadow_offset: 4.0,
             ..Self::regular()
         }
     }
