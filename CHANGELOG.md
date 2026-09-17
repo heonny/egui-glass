@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.1.5 - 2026-09-17
+
+### Documentation
+
+- Make the crates.io README a self-contained integration guide with a complete, asset-free app.
+- Add sidebar, scrolling-modal, and host-theme preservation recipes for existing egui apps.
+- Explain static versus live backdrops, initialization order, MSAA, material selection, and troubleshooting.
+- Replace nested glass in the quick start with ordinary child controls and clarify painting order.
+- No library API or rendering changes.
+
 ## 0.1.4 - 2026-09-17
 
 ### Components and demo

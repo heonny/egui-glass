@@ -1,6 +1,9 @@
 # Guide: putting glass into your app
 
-This is the short path. Everything here has a longer explanation in the [reference](reference.md).
+The [README](https://github.com/heonny/egui-glass#quick-start), also displayed on
+[crates.io](https://crates.io/crates/egui_glass), is the self-contained starting point: it includes
+a complete app, sidebar and scrolling-modal recipes, host-theme preservation, and troubleshooting.
+This guide adds topic-specific details. See the [reference](reference.md) for the full API.
 
 ## 1. Requirements
 
@@ -9,7 +12,7 @@ This is the short path. Everything here has a longer explanation in the [referen
 - Rust 1.92 or newer.
 
 ```toml
-egui_glass = "0.1"                                        # add features = ["serde"] to save styles
+egui_glass = "0.1.5"                                      # add features = ["serde"] to save styles
 ```
 
 ## 2. Register once
@@ -73,8 +76,11 @@ egui_glass::paint_glass(ui, rect, &GlassStyle::regular());             // just t
 ```
 
 Glass usually floats: put it in an `egui::Area` (with `.constrain(false)`, see the reference for
-why) or paint it after the content. Never put glass inside glass; controls inside a `Glass` are
-drawn flat automatically.
+why). Paint a custom glass surface before its own foreground content, but after the backdrop.
+Use ordinary egui controls inside `Glass`; they receive flat visuals automatically.
+`GlassButton` and other glass surfaces still paint their own glass, so do not nest them inside
+a glass container. To retain your existing control theme, use the README's
+[style-preservation recipe](https://github.com/heonny/egui-glass#preserve-your-existing-control-theme).
 
 ### Glass sliders (since 0.1.4)
 
