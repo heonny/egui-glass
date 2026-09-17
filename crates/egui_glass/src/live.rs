@@ -10,9 +10,8 @@ use std::sync::Mutex;
 use egui::{ClippedPrimitive, Color32, Context, FontDefinitions, Id, Rect, Shape, Ui, UiBuilder};
 use egui_wgpu::{CallbackResources, CallbackTrait, RenderState, ScreenDescriptor};
 
+use crate::mipgen::{MipGen, Pyramid, FORMAT};
 use crate::renderer::GlassResources;
-
-const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 /// Screen mapping of this frame's live backdrop, read by the glass widgets.
 #[derive(Clone, Copy)]
@@ -46,8 +45,14 @@ impl LiveBackdrop {
         if let Some(fonts) = fonts {
             twin.set_fonts(fonts);
         }
-        let resources = LiveResources::new(&render_state.device);
-        render_state.renderer.write().callback_resources.insert(resources);
+        let mut renderer = render_state.renderer.write();
+        let mipgen = renderer
+            .callback_resources
+            .get::<GlassResources>()
+            .map(|g| g.mipgen.clone())
+            .expect("egui_glass::init must be called before LiveBackdrop::new");
+        let resources = LiveResources::new(&render_state.device, mipgen);
+        renderer.callback_resources.insert(resources);
         Self { twin }
     }
 
@@ -122,6 +127,7 @@ impl CallbackTrait for LiveCallback {
         }
         res.ensure_target(device, w, h);
         let target = res.target.as_ref().expect("target created above");
+        let mipgen = res.mipgen.clone();
 
         for (id, delta) in &frame.textures_delta.set {
             res.renderer.update_texture(device, queue, *id, delta);
@@ -149,22 +155,8 @@ impl CallbackTrait for LiveCallback {
         for id in &frame.textures_delta.free {
             res.renderer.free_texture(id);
         }
-        for level in 1..target.mip_views.len() {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("egui_glass_mip"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target.mip_views[level],
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
-                })],
-                ..Default::default()
-            });
-            pass.set_pipeline(&res.mip_pipeline);
-            pass.set_bind_group(0, &target.mip_bind_groups[level - 1], &[]);
-            pass.draw(0..3, 0..1);
-        }
-        let (sample_view, mips) = (target.sample_view.clone(), target.mip_views.len() as u32);
+        mipgen.generate(encoder, target);
+        let (sample_view, mips) = (target.sample_view.clone(), target.mip_levels());
         let pass_nr = res.pass_counter;
         res.pass_counter += 1;
         if let Some(glass) = resources.get_mut::<GlassResources>() {
@@ -176,82 +168,20 @@ impl CallbackTrait for LiveCallback {
     fn paint(&self, _info: egui::PaintCallbackInfo, _pass: &mut wgpu::RenderPass<'static>, _resources: &CallbackResources) {}
 }
 
-struct Target {
-    size: [u32; 2],
-    /// One view per mip level, for rendering.
-    mip_views: Vec<wgpu::TextureView>,
-    /// Non-sRGB view over all levels, sampled by the glass shader as gamma values.
-    sample_view: wgpu::TextureView,
-    mip_bind_groups: Vec<wgpu::BindGroup>,
-}
-
 pub(crate) struct LiveResources {
     renderer: egui_wgpu::Renderer,
     /// App renderer texture id -> id of the same texture in the twin renderer.
     texture_map: HashMap<egui::TextureId, egui::TextureId>,
-    mip_pipeline: wgpu::RenderPipeline,
-    mip_layout: wgpu::BindGroupLayout,
-    sampler: wgpu::Sampler,
-    target: Option<Target>,
+    mipgen: std::sync::Arc<MipGen>,
+    target: Option<Pyramid>,
     /// Counts live frames; glass resources use it to know the live view is current.
     pass_counter: u64,
 }
 
 impl LiveResources {
-    fn new(device: &wgpu::Device) -> Self {
+    fn new(device: &wgpu::Device, mipgen: std::sync::Arc<MipGen>) -> Self {
         let renderer = egui_wgpu::Renderer::new(device, FORMAT, egui_wgpu::RendererOptions::default());
-        let shader = device.create_shader_module(wgpu::include_wgsl!("mipgen.wgsl"));
-        let mip_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("egui_glass_mip"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("egui_glass_mip"),
-            bind_group_layouts: &[Some(&mip_layout)],
-            immediate_size: 0,
-        });
-        let mip_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("egui_glass_mip"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState { format: FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("egui_glass_mip"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        Self { renderer, texture_map: HashMap::new(), mip_pipeline, mip_layout, sampler, target: None, pass_counter: 0 }
+        Self { renderer, texture_map: HashMap::new(), mipgen, target: None, pass_counter: 0 }
     }
 
     /// Mirrors a native texture of the app's renderer (`app_id`) into the twin renderer.
@@ -270,39 +200,6 @@ impl LiveResources {
         if self.target.as_ref().is_some_and(|t| t.size == [w, h]) {
             return;
         }
-        let mip_level_count = 32 - w.max(h).leading_zeros();
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("egui_glass_live"),
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-            mip_level_count,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
-        });
-        let mip_views: Vec<_> = (0..mip_level_count)
-            .map(|level| {
-                texture.create_view(&wgpu::TextureViewDescriptor { base_mip_level: level, mip_level_count: Some(1), ..Default::default() })
-            })
-            .collect();
-        let mip_bind_groups = mip_views[..mip_views.len() - 1]
-            .iter()
-            .map(|view| {
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("egui_glass_mip"),
-                    layout: &self.mip_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) },
-                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-                    ],
-                })
-            })
-            .collect();
-        let sample_view = texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(wgpu::TextureFormat::Rgba8Unorm),
-            ..Default::default()
-        });
-        self.target = Some(Target { size: [w, h], mip_views, sample_view, mip_bind_groups });
+        self.target = Some(self.mipgen.create(device, w, h, wgpu::TextureUsages::empty()));
     }
 }

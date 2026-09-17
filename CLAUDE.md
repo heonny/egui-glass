@@ -8,7 +8,7 @@ photos in `examples/asset`.
 
 ```bash
 cargo run -p egui_glass_demo                              # demo (eframe + wgpu)
-cargo test --workspace --all-features                     # unit tests (corner math, mips, serde)
+cargo test --workspace --all-features                     # unit tests (corner math, serde)
 cargo clippy --workspace --all-targets --all-features     # must stay warning-free
 make bundle | make install                                 # macOS .app via scripts/bundle-macos.sh
 ```
@@ -26,10 +26,13 @@ blank, so retry rather than assume a bug.
   a mip level, tint/vibrancy, specular rim, border, shadow. Premultiplied output.
 - `renderer.rs` — pipeline, dynamic-offset uniform slots (256 B each, reused per pass, copied on
   growth), `corner_params()` (CPU side of the corner model), static vs live backdrop binding.
-- `backdrop.rs` — static backdrop upload with a linear-light CPU mip chain, screen mapping
-  recorded in egui memory, `register_native_texture` mirrored into the live renderer.
-- `live.rs` + `mipgen.wgsl` — `LiveBackdrop`: twin egui context rendered off screen inside a
-  paint-callback `prepare`, GPU mip blits, then bound as this frame's backdrop.
+- `backdrop.rs` — static backdrop upload (level 0), screen mapping recorded in egui memory,
+  `register_native_texture` mirrored into the live renderer.
+- `mipgen.rs` + `mipgen.wgsl` — sRGB mip pyramid built on the GPU with the 13-tap Jimenez
+  downsample; sampled through a non-sRGB view so the glass shader sees gamma bytes. Used by both
+  the static and the live backdrop.
+- `live.rs` — `LiveBackdrop`: twin egui context rendered off screen inside a paint-callback
+  `prepare`, then bound as this frame's backdrop.
 - `style.rs` — `GlassStyle` and presets; `widgets.rs` — `Glass`, `GlassButton`, `GlassToolbar`,
   `paint_glass`, flat visuals for controls sitting on glass.
 - `assets/branding/` — app icon (`EguiGlass.icns`, `app-icon.png`) and README logo; keep the
@@ -47,7 +50,10 @@ blank, so retry rather than assume a bug.
 - Corners are the Figma-style corner-smoothing model. Do not add Apple's reverse-engineered curve
   constants. "Liquid Glass" is Apple's trademark: use it only descriptively, never in identifiers.
 - Colours: `Color32` is premultiplied — unpremultiply before sending straight colours to the
-  shader. Textures are gamma bytes; average mips in linear light.
+  shader. Backdrop textures are sRGB so mips filter in linear light; the shader samples a
+  non-sRGB view and works in gamma space like egui.
+- Blur quality is what separates "glass" from "grey box": keep the 13-tap pyramid + disc taps;
+  plain box mips looked blotchy on large panels.
 - Keep the library dependency-light (`egui`, `egui-wgpu`, `wgpu`, `bytemuck`, optional `serde`).
   App-level concerns (fonts, file dialogs, layouts) belong in the demo.
 

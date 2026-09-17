@@ -96,9 +96,12 @@ impl GlassStyle {
     /// [`Self::panel`] for dark themes.
     pub const fn panel_dark() -> Self {
         Self {
-            tint: Color32::from_rgba_unmultiplied_const(0, 0, 0, 110),
-            specular: 0.15,
-            border: 0.3,
+            // iOS dark panels are dimmed content with a faint white lift, not black paint.
+            tint: Color32::from_rgba_unmultiplied_const(255, 255, 255, 24),
+            brightness: 0.72,
+            saturation: 0.9,
+            specular: 0.3,
+            border: 0.35,
             shadow: 0.35,
             ..Self::panel()
         }

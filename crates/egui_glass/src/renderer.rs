@@ -4,6 +4,7 @@ use egui::Rect;
 use egui_wgpu::{CallbackResources, CallbackTrait, RenderState, ScreenDescriptor};
 use wgpu::util::DeviceExt;
 
+use crate::mipgen::MipGen;
 use crate::GlassStyle;
 
 const SLOT_SIZE: u64 = 256; // >= min_uniform_buffer_offset_alignment on all backends
@@ -64,6 +65,7 @@ pub(crate) fn corner_params(radius: f32, smoothing: f32, budget: f32) -> [f32; 7
 
 /// GPU state shared by every glass surface. Lives in egui-wgpu's `CallbackResources`.
 pub(crate) struct GlassResources {
+    pub(crate) mipgen: std::sync::Arc<MipGen>,
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -172,6 +174,7 @@ impl GlassResources {
         let uniforms = Self::create_uniforms(device, INITIAL_SLOTS);
         let bind_group = Self::create_bind_group(device, &layout, &uniforms, &backdrop_view, &sampler);
         Self {
+            mipgen: std::sync::Arc::new(MipGen::new(device)),
             pipeline,
             layout,
             sampler,

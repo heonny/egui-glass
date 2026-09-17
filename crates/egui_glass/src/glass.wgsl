@@ -140,14 +140,15 @@ fn tap(p: vec2<f32>, lod: f32) -> vec3<f32> {
 }
 
 fn sample_backdrop(p: vec2<f32>, lod: f32) -> vec3<f32> {
-    // 5-tap rotated cross on top of the mip level to hide box artifacts.
+    // Centre tap plus an 8-tap ring at half the blur radius on top of the
+    // (already smooth) pyramid level: reads as a Gaussian without banding.
     let s = max(u.blur, 0.0) * 0.5;
-    let c = tap(p, lod);
-    let a = tap(p + vec2<f32>( s,  s * 0.5), lod);
-    let b = tap(p + vec2<f32>(-s, -s * 0.5), lod);
-    let d = tap(p + vec2<f32>( s * 0.5, -s), lod);
-    let e = tap(p + vec2<f32>(-s * 0.5,  s), lod);
-    return (c * 2.0 + a + b + d + e) / 6.0;
+    var sum = tap(p, lod) * 2.0;
+    for (var i = 0; i < 8; i++) {
+        let a = f32(i) * 0.7853982 + 0.3927;
+        sum += tap(p + s * vec2<f32>(cos(a), sin(a)), lod);
+    }
+    return sum / 10.0;
 }
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
@@ -213,9 +214,9 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // and makes the highlight pop, like the seam of a polished glass rim.
     col *= 1.0 - 0.18 * u.specular * pow(t, 12.0) * (1.0 - max(ndl, 0.0));
 
-    // Thin inner border, brighter on the lit side.
-    let ring = 1.0 - smoothstep(0.0, 1.5, abs(d + 0.9));
-    let ring_a = u.border * ring * (0.25 + 0.55 * max(ndl, 0.0) + 0.15 * max(-ndl, 0.0));
+    // Hairline inner border, a little brighter on the lit side.
+    let ring = 1.0 - smoothstep(0.0, 1.2, abs(d + 0.7));
+    let ring_a = u.border * ring * (0.32 + 0.4 * max(ndl, 0.0) + 0.18 * max(-ndl, 0.0));
     col = mix(col, vec3<f32>(1.0), ring_a);
 
     col = clamp(col, vec3<f32>(0.0), vec3<f32>(1.0));

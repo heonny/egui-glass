@@ -22,6 +22,7 @@
 
 mod backdrop;
 mod live;
+mod mipgen;
 mod renderer;
 mod style;
 mod widgets;

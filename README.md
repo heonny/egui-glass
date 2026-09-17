@@ -164,7 +164,8 @@ top of it shows as the page colour through the glass. This is cheap and matches 
 that glass floats above content and is never stacked on glass.
 
 Each glass surface costs one draw call (a single triangle) and one 256-byte uniform slot; the
-backdrop is uploaded once with a linear-light mip chain, and blur is a 5-tap sample at a mip level.
+backdrop is uploaded once and turned into a 13-tap (Jimenez) mip pyramid on the GPU; blur is a
+9-tap disc sampled at a fractional level, which reads like a Gaussian without banding.
 
 ### Live backdrop (optional)
 
