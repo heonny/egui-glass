@@ -77,9 +77,9 @@ blank, so retry rather than assume a bug.
   reviewed by a designer): Apple glass is a *flat plate with a thin bevel*, not a puffy droplet.
   Small controls: white tint 52/255, blur 10, brightness 1.06, refraction 14 in an 8 px edge
   band, chroma 0.3, specular 0.5, border 0.3, shadow 0.05 (iOS shows no drop shadow on white
-  pages); rim = `pow(t,10)`, corner-weighted (`4 n.x² n.y²`), no top-down sheen, a faint dark
-  contour all round the edge (stronger on the unlit side) is what separates glass from a white
-  page. Panels: blur 36, tint 80/255, refraction 8 in 10 px, specular 0.3, border 0.25, shadow
+  pages); rim = `pow(t,10)`, corner-weighted (`4 n.x² n.y²`), no top-down sheen. On a white page
+  glass is separated only by a 2-3 px faint dark contour (`0.2 * pow(t,8)`, stronger on the
+  unlit side) and, for panels, a brightness of 0.985 (a hair darker than the page). Panels: blur 36, tint 80/255, refraction 8 in 10 px, specular 0.3, border 0.25, shadow
   0.06, radius 28. The white line must never be what separates glass from the background; the
   tint/blur contrast and the contour do that. Lens/lighting
   normal is the analytic rounded-box normal (the SDF gradient is faceted and drew spokes).

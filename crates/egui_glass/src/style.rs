@@ -89,7 +89,7 @@ impl GlassStyle {
             edge_width: 10.0,
             chromatic: 0.1,
             tint: Color32::from_rgba_unmultiplied_const(255, 255, 255, 80),
-            brightness: 1.02,
+            brightness: 0.985, // a hair darker than a white page so the panel still reads on it
             saturation: 1.05,
             specular: 0.3,
             border: 0.25,
