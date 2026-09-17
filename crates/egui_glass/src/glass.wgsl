@@ -130,12 +130,14 @@ fn rounded_normal(pos: vec2<f32>, half: vec2<f32>, r: f32) -> vec2<f32> {
 }
 
 // One backdrop tap at a screen position (px). Beyond the image it fades to the
-// fill colour over the blur radius, so a blurred image edge stays smooth.
+// fill colour over the blur radius, so a blurred image edge stays smooth. A
+// transparent fill means "nothing is outside" (the backdrop is the whole
+// screen): clamp to the edge instead of fading.
 fn tap(p: vec2<f32>, lod: f32) -> vec3<f32> {
     let uv = (p - u.bd_min) / (u.bd_max - u.bd_min);
     let edge = min(min(p.x - u.bd_min.x, u.bd_max.x - p.x), min(p.y - u.bd_min.y, u.bd_max.y - p.y));
     let r = max(u.blur * 0.5, 0.5);
-    let inside = smoothstep(-r, r, edge);
+    let inside = select(smoothstep(-r, r, edge), 1.0, u.fill.a < 0.001);
     return mix(u.fill.rgb, textureSampleLevel(bd_tex, bd_samp, uv, lod).rgb, inside);
 }
 
