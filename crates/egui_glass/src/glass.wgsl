@@ -26,6 +26,7 @@ struct Uniforms {
     corner_a: vec4<f32>,   // p, a, b, c   (smoothed corner, px, see renderer::corner_params)
     corner_b: vec4<f32>,   // d, r, theta3
     fill: vec4<f32>,       // colour shown where a sample falls outside the backdrop rect
+    shadow_geo: vec4<f32>, // offset (down), spread
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -167,9 +168,9 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let d = sd_smooth_box(p - center, half);
     let mask = 1.0 - smoothstep(-0.5, 0.5, d);
 
-    // Shadow (outside the shape only), offset downwards.
-    let sh_off = vec2<f32>(0.0, u.shadow_radius * 0.35);
-    let ds = sd_smooth_box(p - center - sh_off, half);
+    // Shadow (outside the shape only): the shape pushed down and grown by the spread.
+    let sh_off = vec2<f32>(0.0, u.shadow_geo.x);
+    let ds = sd_smooth_box(p - center - sh_off, half) - u.shadow_geo.y;
     let sh_t = 1.0 - smoothstep(-u.shadow_radius * 0.25, u.shadow_radius, ds);
     let shadow = u.shadow * sh_t * sh_t * (1.0 - mask); // quadratic tail: soft, mostly near the edge
 

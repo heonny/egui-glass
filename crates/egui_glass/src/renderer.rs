@@ -36,6 +36,7 @@ struct Uniforms {
     corner_a: [f32; 4], // p, a, b, c
     corner_b: [f32; 4], // d, r, theta3, 0
     fill: [f32; 4],     // colour outside the backdrop rect
+    shadow_geo: [f32; 4], // offset, spread, 0, 0
 }
 
 /// Smoothed corner geometry in the corner's local frame (px), following the
@@ -345,6 +346,7 @@ impl GlassCallback {
             corner_a: [corner[0], corner[1], corner[2], corner[3]],
             corner_b: [corner[4], corner[5], corner[6], 0.0],
             fill: unpremultiply(self.fill),
+            shadow_geo: [s.shadow_offset * ppp, s.shadow_spread * ppp, 0.0, 0.0],
         }
     }
 }

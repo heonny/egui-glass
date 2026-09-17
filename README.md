@@ -147,7 +147,7 @@ API at a glance:
 `GlassStyle` fields (all in logical points): `corner_radius` (`f32::INFINITY` = capsule),
 `corner_smoothing` (0 = circular arc, 0.6 = the continuous look of iOS corners, 1 = max), `blur`,
 `refraction`, `edge_width`, `chromatic`, `tint`, `brightness`, `saturation`, `specular`, `border`,
-`shadow`, `shadow_radius`. Presets: `regular()`, `clear()`, `dark()`, `panel()`, `panel_dark()`.
+`shadow`, `shadow_radius`, `shadow_offset`, `shadow_spread`. Presets: `regular()`, `clear()`, `dark()`, `panel()`, `panel_dark()`.
 Use `panel()` for large surfaces (sidebars, sheets): heavy blur, almost no lensing. Text on glass
 picks a light colour automatically when the tint is dark.
 

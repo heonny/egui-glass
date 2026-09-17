@@ -33,6 +33,10 @@ pub struct GlassStyle {
     pub shadow: f32,
     /// Drop shadow blur radius.
     pub shadow_radius: f32,
+    /// How far the shadow is pushed down.
+    pub shadow_offset: f32,
+    /// How far the shadow shape grows beyond the glass before it is blurred.
+    pub shadow_spread: f32,
 }
 
 impl Default for GlassStyle {
@@ -58,6 +62,8 @@ impl GlassStyle {
             border: 0.3,
             shadow: 0.16,
             shadow_radius: 22.0,
+            shadow_offset: 8.0,
+            shadow_spread: 0.0,
         }
     }
 

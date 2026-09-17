@@ -262,6 +262,8 @@ impl App {
         slider(ui, &mut s.border, 0.0..=1.0, "border");
         slider(ui, &mut s.shadow, 0.0..=1.0, "shadow");
         slider(ui, &mut s.shadow_radius, 0.0..=60.0, "shadow radius");
+        slider(ui, &mut s.shadow_offset, -30.0..=30.0, "shadow offset");
+        slider(ui, &mut s.shadow_spread, -10.0..=30.0, "shadow spread");
     }
 
     fn scene(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
