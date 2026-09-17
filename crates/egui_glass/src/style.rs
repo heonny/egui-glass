@@ -80,21 +80,22 @@ impl GlassStyle {
         }
     }
 
-    /// Flat frosted panel for large surfaces (sidebars, sheets): heavy blur,
-    /// almost no lensing, soft light. Apple keeps big glass calm.
+    /// Flat frosted panel for large surfaces (sidebars, sheets): a plain sheet of
+    /// frosted glass. Heavy blur, a whisper of lensing at the edge, no highlights,
+    /// no halo; only a faint edge separates it from a white page.
     pub const fn panel() -> Self {
         Self {
             corner_radius: 28.0,
             blur: 36.0,
-            refraction: 8.0,
-            edge_width: 10.0,
-            chromatic: 0.1,
+            refraction: 4.0,
+            edge_width: 8.0,
+            chromatic: 0.0,
             tint: Color32::from_rgba_unmultiplied_const(255, 255, 255, 80),
             brightness: 0.985, // a hair darker than a white page so the panel still reads on it
             saturation: 1.05,
-            specular: 0.3,
-            border: 0.25,
-            shadow: 0.04,
+            specular: 0.08,
+            border: 0.15,
+            shadow: 0.0,
             shadow_radius: 24.0,
             shadow_offset: 4.0,
             ..Self::regular()
@@ -108,8 +109,8 @@ impl GlassStyle {
             tint: Color32::from_rgba_unmultiplied_const(255, 255, 255, 24),
             brightness: 0.72,
             saturation: 0.9,
-            specular: 0.2,
-            border: 0.2,
+            specular: 0.1,
+            border: 0.15,
             shadow: 0.0,
             ..Self::panel()
         }
