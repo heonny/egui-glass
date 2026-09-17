@@ -207,12 +207,12 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // Highlights gather where the edge curves (corners, capsule ends); straight edges
     // only get a faint line, as on a polished slab lit by a broad source.
     let curved = 4.0 * n.x * n.x * n.y * n.y;
-    let rim = pow(t, 7.0) * (0.3 + 0.7 * curved) * (1.0 * max(ndl, 0.0) + 0.6 * max(-ndl, 0.0)) + pow(t, 4.0) * 0.05;
-    let sheen = 0.05 * (1.0 - clamp((p.y - u.rect_min.y) / max(half.y * 2.0, 1.0), 0.0, 1.0));
-    col += vec3<f32>(1.0) * u.specular * (rim + sheen);
-    // A faint dark line at the very edge on the unlit side reads as the slab's thickness
-    // and makes the highlight pop, like the seam of a polished glass rim.
-    col *= 1.0 - 0.18 * u.specular * pow(t, 12.0) * (1.0 - max(ndl, 0.0));
+    // Thin: the plate is flat, only its bevelled edge catches light. No top-down sheen,
+    // that made the surface read as a dome.
+    let rim = pow(t, 10.0) * (0.3 + 0.7 * curved) * (1.0 * max(ndl, 0.0) + 0.6 * max(-ndl, 0.0));
+    col += vec3<f32>(1.0) * u.specular * rim;
+    // A faint dark line at the very edge on the unlit side reads as the plate's thickness.
+    col *= 1.0 - 0.1 * u.specular * pow(t, 14.0) * (1.0 - max(ndl, 0.0));
 
     // Hairline inner border, a little brighter on the lit side.
     let ring = 1.0 - smoothstep(0.0, 1.2, abs(d + 0.7));
