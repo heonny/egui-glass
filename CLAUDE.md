@@ -68,8 +68,8 @@ blank, so retry rather than assume a bug.
   zoomed crops of a control over a busy photo; a CPU replica of the SDF was the fastest way to
   find the sign bug.
 - Tuned look (compared at 2x against iOS 26 home/lock screens on the same Monet wallpaper):
-  small controls are lightly frosted (white tint 52/255, blur 10, brightness 1.06, refraction 18
-  over a 22 px edge zone, chroma 0.3); highlights are corner-weighted (`4 n.x² n.y²`), a faint
+  small controls are lightly frosted (white tint 52/255, blur 10, brightness 1.06, refraction 16
+  over a narrow 12 px edge zone so the centre stays a flat blur, chroma 0.3); highlights are corner-weighted (`4 n.x² n.y²`), a faint
   seam line marks the unlit edge; panels are frosted but see-through with a visible edge lens
   (blur 36, tint 80/255, refraction 10, radius 28). The lens/lighting normal is the analytic
   rounded-box normal, not the polyline SDF gradient (that one is faceted and shows as spokes).
