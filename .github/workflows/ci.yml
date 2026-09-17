@@ -8,6 +8,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 jobs:
   library:
     name: library (${{ matrix.os }})
@@ -21,8 +24,31 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test -p egui_glass --all-features
-      - run: cargo clippy -p egui_glass --all-targets --all-features -- -D warnings
+      - run: cargo test -p egui_glass --locked
+      - run: cargo test -p egui_glass --all-features --locked
+      - run: cargo clippy -p egui_glass --all-targets --all-features --locked -- -D warnings
+
+  msrv:
+    name: library (Rust 1.92)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check -p egui_glass --all-features --locked
+
+  package:
+    name: docs and package
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings -D missing-docs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc -p egui_glass --all-features --no-deps --locked
+      - run: cmp LICENSE crates/egui_glass/LICENSE
+      - run: cargo package -p egui_glass --locked
 
   demo:
     name: demo (${{ matrix.os }})
@@ -36,5 +62,5 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - run: cargo build -p egui_glass_demo --examples
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo build -p egui_glass_demo --examples --locked

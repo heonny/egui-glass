@@ -8,6 +8,7 @@ categories = ["gui", "graphics", "rendering"]
 license = "MIT"
 description = "Apple Liquid Glass style widgets for egui, rendered on the GPU via egui-wgpu"
 repository = "https://github.com/heonny/egui-glass"
+documentation = "https://docs.rs/egui_glass"
 keywords = ["egui", "gui", "glass", "wgpu", "ui"]
 
 [package.metadata.docs.rs]

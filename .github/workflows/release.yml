@@ -8,6 +8,9 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -18,6 +21,13 @@ jobs:
         run: |
           version="$(grep '^version' crates/egui_glass/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
           [ "v$version" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != crate version $version"; exit 1; }
+      - run: cargo test -p egui_glass --locked
+      - run: cargo test -p egui_glass --all-features --locked
+      - run: cargo doc -p egui_glass --all-features --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings -D missing-docs
+      - run: cmp LICENSE crates/egui_glass/LICENSE
+      - run: cargo publish -p egui_glass --dry-run --locked
       - run: cargo publish -p egui_glass --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
