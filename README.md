@@ -6,7 +6,7 @@ Apple *Liquid Glass* style surfaces for [egui](https://github.com/emilk/egui), d
 through `egui-wgpu`: refraction at the edge, frosted blur, tint, a thin bevel highlight. No
 animation. Tuned side by side with iOS 26 screenshots, so the defaults are the look.
 
-![demo](https://raw.githubusercontent.com/heonny/egui-glass/main/docs/demo.jpg)
+![demo](https://raw.githubusercontent.com/heonny/egui-glass/main/docs/demo.png)
 
 ## Quick start
 
