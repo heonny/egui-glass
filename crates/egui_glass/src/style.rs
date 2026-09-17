@@ -60,7 +60,7 @@ impl GlassStyle {
             saturation: 1.2,
             specular: 0.5,
             border: 0.3,
-            shadow: 0.05,
+            shadow: 0.0,
             shadow_radius: 22.0,
             shadow_offset: 8.0,
             shadow_spread: 0.0,
@@ -93,8 +93,9 @@ impl GlassStyle {
             saturation: 1.05,
             specular: 0.3,
             border: 0.25,
-            shadow: 0.12,
+            shadow: 0.0,
             shadow_radius: 28.0,
+            shadow_offset: 10.0,
             ..Self::regular()
         }
     }
@@ -108,7 +109,7 @@ impl GlassStyle {
             saturation: 0.9,
             specular: 0.2,
             border: 0.2,
-            shadow: 0.12,
+            shadow: 0.0,
             ..Self::panel()
         }
     }
