@@ -42,6 +42,7 @@ mod backdrop;
 mod live;
 mod mipgen;
 mod renderer;
+mod slider;
 mod style;
 mod widgets;
 
@@ -50,5 +51,6 @@ pub use backdrop::{
 };
 pub use live::LiveBackdrop;
 pub use renderer::init;
+pub use slider::GlassSlider;
 pub use style::GlassStyle;
 pub use widgets::{paint_glass, Glass, GlassButton, GlassToolbar};

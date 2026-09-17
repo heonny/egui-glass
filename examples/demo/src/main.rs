@@ -1,9 +1,10 @@
 mod fonts;
+mod controls;
 
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Color32, ColorImage, Rect, Vec2};
-use egui_glass::{Glass, GlassButton, GlassStyle, GlassToolbar, LiveBackdrop};
+use egui_glass::{Glass, GlassButton, GlassSlider, GlassStyle, GlassToolbar, LiveBackdrop};
 
 const MAX_PHOTO_SIZE: u32 = 1600;
 
@@ -108,6 +109,7 @@ fn main() -> eframe::Result {
 
 struct App {
     style: GlassStyle,
+    demo_volume: f32,
     selected: usize,
     photos: Vec<PathBuf>,
     /// Theme the visuals were last built for.
@@ -144,7 +146,7 @@ impl App {
             Ok("clear") => GlassStyle::clear(),
             _ => GlassStyle::regular(),
         };
-        let mut app = Self { style, selected, photos, dark: style.is_dark(), live, live_mode: std::env::var_os("LG_LIVE").is_none_or(|v| v != "0"), status: None, caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
+        let mut app = Self { style, demo_volume: 65.0, selected, photos, dark: style.is_dark(), live, live_mode: std::env::var_os("LG_LIVE").is_none_or(|v| v != "0"), status: None, caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
         app.apply_visuals(&cc.egui_ctx);
         if let Some(path) = app.photos.get(selected).cloned() {
             app.load_photo(&cc.egui_ctx, rs, &path);
@@ -221,51 +223,6 @@ impl App {
         }
     }
 
-    fn controls(&mut self, ui: &mut egui::Ui) {
-        ui.heading("egui_glass");
-        ui.label("Sliders drive the buttons, toolbar and back button. The sidebar always uses the flat panel preset; a dark tint switches the whole page to dark mode.");
-        ui.label("Sidebar items switch the photo; drop an image onto the window to load your own. Drag the glass panels around.");
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            for (name, preset) in [("Regular", GlassStyle::regular()), ("Clear", GlassStyle::clear()), ("Dark", GlassStyle::dark()), ("Panel", GlassStyle::panel())] {
-                if ui.button(name).clicked() {
-                    self.style = preset;
-                }
-            }
-        });
-        ui.checkbox(&mut self.live_mode, "Live backdrop (glass refracts text too)");
-        if let Some(status) = &self.status {
-            ui.label(egui::RichText::new(status).weak());
-        }
-        ui.separator();
-        let s = &mut self.style;
-        let slider = |ui: &mut egui::Ui, v: &mut f32, range: std::ops::RangeInclusive<f32>, label: &str| {
-            ui.add(egui::Slider::new(v, range).text(label));
-        };
-        ui.label("Shape");
-        slider(ui, &mut s.corner_radius, 0.0..=80.0, "corner radius");
-        slider(ui, &mut s.corner_smoothing, 0.0..=1.0, "corner smoothing");
-        ui.label("Lens");
-        slider(ui, &mut s.refraction, 0.0..=60.0, "refraction");
-        slider(ui, &mut s.edge_width, 1.0..=120.0, "edge width");
-        slider(ui, &mut s.chromatic, 0.0..=1.0, "chromatic");
-        ui.label("Material");
-        slider(ui, &mut s.blur, 0.0..=80.0, "blur");
-        ui.horizontal(|ui| {
-            ui.color_edit_button_srgba(&mut s.tint);
-            ui.label("tint (alpha = amount)");
-        });
-        slider(ui, &mut s.brightness, 0.5..=1.6, "brightness");
-        slider(ui, &mut s.saturation, 0.0..=2.0, "saturation");
-        ui.label("Light");
-        slider(ui, &mut s.specular, 0.0..=1.0, "specular");
-        slider(ui, &mut s.border, 0.0..=1.0, "border");
-        slider(ui, &mut s.shadow, 0.0..=1.0, "shadow");
-        slider(ui, &mut s.shadow_radius, 0.0..=60.0, "shadow radius");
-        slider(ui, &mut s.shadow_offset, -30.0..=30.0, "shadow offset");
-        slider(ui, &mut s.shadow_spread, -10.0..=30.0, "shadow spread");
-    }
-
     fn scene(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         let pane = ui.max_rect();
         let Some(size) = egui_glass::backdrop_size(ui.ctx()).filter(|s| s.x > 0.0 && s.y > 0.0) else { return };
@@ -326,18 +283,32 @@ impl App {
 
         let back_pos = if portrait { egui::pos2(photo_rect.min.x, pane.min.y) + Vec2::splat(16.0) } else { pane.min + Vec2::new(SIDEBAR_WIDTH + 32.0, 16.0) };
         area("back", back_pos).show(ui.ctx(), |ui| {
-            GlassButton::new(egui::RichText::new("‹").size(22.0)).icon().style(style).show(ui);
+            GlassButton::new(egui::RichText::new("‹").size(22.0)).icon().accessible_name("Back").style(style).show(ui);
+        });
+
+        area("slider_demo", pane.max - Vec2::new(20.0, 98.0)).pivot(egui::Align2::RIGHT_BOTTOM).show(ui.ctx(), |ui| {
+            let width = (pane.width() - 64.0).clamp(160.0, 260.0);
+            ui.set_width(width + 32.0);
+            let panel = if self.dark { Glass::panel_dark() } else { Glass::new(GlassStyle { tint: Color32::from_white_alpha(140), ..GlassStyle::panel() }) };
+            panel.show(ui, |ui| {
+                ui.set_width(width);
+                ui.label(egui::RichText::new("Glass slider").strong().size(16.0));
+                ui.label(egui::RichText::new("Drag or click the value to fine-tune.").size(12.0));
+                ui.add_space(10.0);
+                GlassSlider::new(&mut self.demo_volume, 0.0..=100.0).text("Volume").suffix("%").step_by(1.0).style(style).show(ui);
+            });
         });
 
         area("toolbar", pane.max - Vec2::splat(20.0)).pivot(egui::Align2::RIGHT_BOTTOM).show(ui.ctx(), |ui| {
             ui.horizontal(|ui| {
                 GlassToolbar::new(style).show(ui, |ui| {
-                    for icon in ["↩", "🗀", "🗑"] {
-                        let _ = ui.button(egui::RichText::new(icon).size(18.0));
+                    for (icon, name) in [("↩", "Undo"), ("🗀", "Open folder"), ("🗑", "Delete")] {
+                        let response = ui.button(egui::RichText::new(icon).size(18.0));
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), name));
                     }
                 });
                 ui.add_space(8.0);
-                GlassButton::new(egui::RichText::new("✏").size(18.0)).icon().style(style).show(ui);
+                GlassButton::new(egui::RichText::new("✏").size(18.0)).icon().accessible_name("Edit").style(style).show(ui);
             });
         });
     }
@@ -408,20 +379,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.sync_theme(ui.ctx());
         self.handle_drop(ui.ctx(), frame);
-        egui::Panel::left("controls").exact_size(280.0).show(ui, |ui| {
-            egui::Panel::bottom("settings_io").frame(egui::Frame::NONE.inner_margin(egui::Margin::same(12))).show(ui, |ui| {
-                let style = self.style.capsule();
-                ui.horizontal(|ui| {
-                    if GlassButton::new("Export").style(style).show(ui).clicked() {
-                        self.export_settings();
-                    }
-                    if GlassButton::new("Import").style(style).show(ui).clicked() {
-                        self.import_settings();
-                    }
-                });
-            });
-            egui::ScrollArea::vertical().show(ui, |ui| self.controls(ui));
-        });
+        self.controls_panel(ui);
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.scene(ui, frame));
     }
 }

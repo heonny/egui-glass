@@ -74,10 +74,16 @@ GlassButton::new(text)     // capsule, GlassStyle::regular()
     .icon()                // square padding: a round button for a glyph
     .min_size(Vec2)        // default 44 x 44
     .text_color(Color32)   // default: strong text colour, white on dark glass
+    .accessible_name("Back") // screen-reader name; defaults to the visible text
     .show(ui) -> Response
 ```
 
 Hover and press use `style.hovered()` / `style.pressed()` (brighter / dimmer variants).
+Keyboard focus adds an outline in the theme's selection stroke colour. Tab / Shift+Tab and
+Enter / Space use egui's standard focus and activation handling. The button registers its role,
+name, enabled state, and actions with egui's accessibility tree; the host must enable its native
+AccessKit integration (for eframe, the `accesskit` feature). Containers and toolbars preserve
+their child widgets' accessibility information.
 
 ### `GlassToolbar`
 
@@ -86,6 +92,29 @@ A capsule bar for flat buttons (`ui.button`, `ui.selectable_label`, …):
 ```rust
 GlassToolbar::default().spacing(6.0).show(ui, |ui| { let _ = ui.button("↩"); }) -> InnerResponse<R>
 ```
+
+### `GlassSlider` (since 0.1.4)
+
+Horizontal linear slider for `&mut f32`, with an editable value above the track:
+
+```rust
+GlassSlider::new(&mut value, 0.0..=100.0)
+    .text("Volume")        // visible label and accessible name
+    .suffix("%")           // unit on the editable value
+    .width(240.0)          // default: available width; minimum 64 points
+    .step_by(1.0)          // optional step for the slider and numeric editor
+    .style(style)          // optical material; white capsule thumb is retained
+    .show(ui)              // Response; changed() includes numeric edits
+```
+
+Also implements `egui::Widget` for `ui.add(...)`. Uses finite ranges, including descending and
+single-value ranges, and clamps values to the range. The editable value shows up to three
+decimal places. The track uses a blue accent and a theme-aware neutral remainder, with a
+white 20 × 16 point capsule thumb and a soft shadow, based on the supplied macOS Settings reference.
+The interaction area remains 40 points tall for comfortable pointer input.
+The thumb retains its white tint and subdued rim when the optical material changes. A focused thumb has an
+outline; disabled sliders use a flat inactive thumb. Each enabled visible slider adds one glass
+draw call. Use this outside `LiveBackdrop::run`'s content closure, like other glass widgets.
 
 ### `paint_glass(ui, rect, &style)`
 
@@ -196,16 +225,18 @@ when the surface format is sRGB. Each surface costs one draw call and one 256-by
   replacing the image; do not manually free the currently active backdrop.
 - Browser/mobile builds and multi-viewport rendering are not covered by CI. Test your intended
   host configuration before adopting the library.
-- `GlassButton` paints a custom control and does not register standard button accessibility
-  metadata. Verify assistive technology support and keyboard behavior in your app. There is no
-  automatic opaque/reduced-transparency mode; provide an app-level fallback if needed.
+- There is no automatic opaque/reduced-transparency mode; provide an app-level fallback if
+  needed. Check text and focus-indicator contrast on your actual backdrop. Native accessibility
+  tree checks do not replace end-to-end testing with the screen readers your users rely on.
 
 ## Demo app
 
-`cargo run -p egui_glass_demo` (`examples/demo`). Left panel: sliders for every style field, the
-presets, a *Live backdrop* toggle, Export / Import of `{ style, live_mode }` as JSON through native
+`cargo run -p egui_glass_demo` (`examples/demo`). Left glass panel: grouped glass sliders for every
+numeric style field, presets, a *Live backdrop* toggle, and pinned Export / Import actions for
+`{ style, live_mode }` as JSON through native
 file dialogs. Sidebar items switch between the bundled photos (`examples/asset`); drop an image
-onto the window to load your own; drag the floating glass around. A dark tint switches the whole
+onto the window to load your own; drag the floating glass around and try the Volume slider card.
+A dark tint switches the whole
 page to a macOS-style dark theme. Platform UI fonts are loaded when present (SF Pro / Apple SD
 Gothic Neo on macOS, Segoe UI / Malgun Gothic on Windows).
 

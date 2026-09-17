@@ -111,6 +111,7 @@ pub struct GlassButton {
     padding: Vec2,
     min_size: Vec2,
     text_color: Option<Color32>,
+    accessible_name: Option<String>,
 }
 
 impl GlassButton {
@@ -122,6 +123,7 @@ impl GlassButton {
             padding: Vec2::new(18.0, 10.0),
             min_size: Vec2::new(44.0, 44.0),
             text_color: None,
+            accessible_name: None,
         }
     }
 
@@ -149,11 +151,20 @@ impl GlassButton {
         self
     }
 
+    /// Sets the name announced by assistive technology, without changing the label.
+    /// Use a descriptive action such as "Back" for an icon-only button.
+    pub fn accessible_name(mut self, name: impl Into<String>) -> Self {
+        self.accessible_name = Some(name.into());
+        self
+    }
+
     /// Draws the button and returns its interaction response, including clicks.
     pub fn show(self, ui: &mut Ui) -> Response {
         let galley = self.text.into_galley(ui, None, f32::INFINITY, egui::TextStyle::Button);
         let size = (galley.size() + 2.0 * self.padding).max(self.min_size);
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        let accessible_name = self.accessible_name.as_deref().unwrap_or_else(|| galley.text());
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), accessible_name));
         if ui.is_rect_visible(rect) {
             let style = if response.is_pointer_button_down_on() {
                 self.style.pressed()
@@ -166,6 +177,11 @@ impl GlassButton {
             let color = self.text_color.unwrap_or_else(|| text_color(ui, &style));
             let pos = rect.center() - galley.size() / 2.0;
             ui.painter().galley(pos, galley, color);
+            if response.has_focus() {
+                let radius = style.corner_radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+                let stroke = egui::Stroke::new(ui.visuals().selection.stroke.width.max(2.0), ui.visuals().selection.stroke.color);
+                ui.painter().rect_stroke(rect, radius, stroke, egui::StrokeKind::Inside);
+            }
         }
         response
     }

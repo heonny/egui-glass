@@ -8,7 +8,7 @@
 
 Glass surfaces for [egui](https://github.com/emilk/egui), inspired by Apple's *Liquid Glass*:
 edge refraction, frosted blur, tint, and a thin bevel highlight, rendered on the GPU through
-`egui-wgpu`. Includes containers, capsule buttons, toolbars, light/dark presets, and an optional
+`egui-wgpu`. Includes containers, capsule buttons, glass sliders, toolbars, light/dark presets, and an optional
 live backdrop for refracting egui content. No animation is provided.
 
 ![demo](https://raw.githubusercontent.com/heonny/egui-glass/main/docs/demo.png)
@@ -20,9 +20,9 @@ The `wayland` and `x11` features below enable Linux windowing.
 
 ```toml
 [dependencies]
-eframe = { version = "0.35", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11"] }
+eframe = { version = "0.35", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "wayland", "x11"] }
 egui = "0.35"
-egui_glass = "0.1.3"
+egui_glass = "0.1.4"
 ```
 
 ```rust
@@ -79,8 +79,10 @@ small API that may evolve before 1.0. Evaluate rendering and interaction on your
 - Library tests run in CI on Linux, macOS, and Windows. Demo builds are checked on macOS and
   Windows. These are build/test checks, not a GPU rendering certification; browser and mobile
   targets are not covered by CI.
-- Glass controls do not provide an opaque accessibility fallback. Check contrast, keyboard
-  interaction, and assistive technology in your app; use standard egui controls when appropriate.
+- `GlassButton` supports Tab navigation, Enter/Space activation, a visible focus outline, and
+  screen-reader button names. Enable the host's AccessKit integration (as above), and use
+  `.accessible_name("Back")` for icon-only buttons. An opaque/reduced-transparency fallback
+  remains an application responsibility; check contrast against your actual backdrop.
 - There are no default crate features. Enable `features = ["serde"]` to serialize `GlassStyle`.
 
 ## Docs

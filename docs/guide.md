@@ -76,6 +76,25 @@ Glass usually floats: put it in an `egui::Area` (with `.constrain(false)`, see t
 why) or paint it after the content. Never put glass inside glass; controls inside a `Glass` are
 drawn flat automatically.
 
+### Glass sliders (since 0.1.4)
+
+`GlassSlider` provides a glass thumb, a filled track, and an editable number. It uses egui's
+standard drag, arrow-key, and accessibility handling. Like the other glass widgets, it needs
+`init` and a registered backdrop. This control is available starting with version 0.1.4.
+
+```rust
+egui_glass::GlassSlider::new(&mut volume, 0.0..=100.0)
+    .text("Volume")
+    .suffix("%")
+    .step_by(1.0)
+    .width(240.0)
+    .show(ui);
+```
+
+Click the number to type a precise value, or drag it for small adjustments. The slider fills
+the available width by default. `.style(...)` adjusts the optical material while preserving
+the white capsule thumb; the remaining track follows the host's light/dark theme.
+
 ## 5. Pick a preset, tweak if needed
 
 | Preset | Use for | Look |
@@ -94,6 +113,22 @@ Glass::new(style).inner_margin(egui::Margin::same(20)).show(ui, |ui| { /* … */
 ```
 
 Text on glass switches to white automatically when the tint is dark (`style.is_dark()`).
+
+### Keyboard and screen readers
+
+`GlassButton` participates in egui's Tab / Shift+Tab focus navigation and activates with Enter
+or Space. Focused buttons draw an outline using the theme's selection stroke colour.
+Disabled UIs suppress activation and expose the disabled state to assistive technology.
+
+For native screen readers, enable the `accesskit` feature in your eframe dependency. Button
+names default to the visible text; provide a descriptive name for icon-only actions:
+
+```rust
+GlassButton::new("‹").icon().accessible_name("Back").show(ui);
+```
+
+Keep meaningful visible text for text buttons. Test contrast over your actual imagery, and
+provide an opaque alternative when your application needs reduced transparency.
 
 ## 6. Dark theme
 
