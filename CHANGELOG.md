@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.3 - 2026-09-17
+
 ### Documentation
 
 - Clarify compatibility, feature flags, platform verification, and adoption limits.

@@ -22,7 +22,7 @@ The `wayland` and `x11` features below enable Linux windowing.
 [dependencies]
 eframe = { version = "0.35", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11"] }
 egui = "0.35"
-egui_glass = "0.1.2"
+egui_glass = "0.1.3"
 ```
 
 ```rust
