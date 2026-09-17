@@ -1,11 +1,13 @@
 //! Apple Liquid Glass style widgets for egui, rendered on the GPU through
 //! egui-wgpu paint callbacks.
 //!
-//! ```ignore
-//! # fn setup(cc: &eframe::CreationContext<'_>, wallpaper: egui::ColorImage) {
-//! let rs = cc.wgpu_render_state.as_ref().unwrap();
+//! Requires egui / egui-wgpu 0.35 and wgpu 29. With eframe, enable its `wgpu`
+//! feature and select `eframe::Renderer::Wgpu`; the glow renderer is unsupported.
+//!
+//! ```no_run
+//! # fn setup(ctx: &egui::Context, rs: &egui_wgpu::RenderState, wallpaper: egui::ColorImage) {
 //! egui_glass::init(rs, 1);
-//! egui_glass::set_backdrop(&cc.egui_ctx, rs, &wallpaper);
+//! egui_glass::set_backdrop(ctx, rs, &wallpaper);
 //! # }
 //! # fn ui(ui: &mut egui::Ui) {
 //! egui_glass::show_backdrop(ui, ui.max_rect());
@@ -19,6 +21,22 @@
 //! not the live framebuffer: egui paints in a single pass, so the pixels behind a
 //! widget are not available to a shader in the same frame. [`LiveBackdrop`]
 //! lifts that limit by rendering your content a second time off screen.
+//!
+//! # Integration order
+//!
+//! Call [`init`] once per renderer, then create a [`LiveBackdrop`] if needed,
+//! then upload the backdrop and register native textures. Draw the backdrop
+//! before glass each frame. The MSAA count passed to [`init`] must match the
+//! host renderer (0 is treated as 1).
+//!
+//! # Features
+//!
+//! No default features. The optional `serde` feature enables serialization and
+//! deserialization of [`GlassStyle`], with defaults for missing fields.
+//!
+//! See the [guide](https://github.com/heonny/egui-glass/blob/main/docs/guide.md)
+//! and [reference](https://github.com/heonny/egui-glass/blob/main/docs/reference.md)
+//! for integration details, performance costs, and limitations.
 
 mod backdrop;
 mod live;

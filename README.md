@@ -2,21 +2,27 @@
   <img src="https://raw.githubusercontent.com/heonny/egui-glass/main/assets/branding/readme-logo.png" alt="egui_glass" width="640">
 </p>
 
-Apple *Liquid Glass* style surfaces for [egui](https://github.com/emilk/egui), drawn on the GPU
-through `egui-wgpu`: refraction at the edge, frosted blur, tint, a thin bevel highlight. No
-animation. Tuned side by side with iOS 26 screenshots, so the defaults are the look.
+[![CI](https://github.com/heonny/egui-glass/actions/workflows/ci.yml/badge.svg)](https://github.com/heonny/egui-glass/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/egui_glass.svg)](https://crates.io/crates/egui_glass)
+[![API docs](https://docs.rs/egui_glass/badge.svg)](https://docs.rs/egui_glass)
+
+Glass surfaces for [egui](https://github.com/emilk/egui), inspired by Apple's *Liquid Glass*:
+edge refraction, frosted blur, tint, and a thin bevel highlight, rendered on the GPU through
+`egui-wgpu`. Includes containers, capsule buttons, toolbars, light/dark presets, and an optional
+live backdrop for refracting egui content. No animation is provided.
 
 ![demo](https://raw.githubusercontent.com/heonny/egui-glass/main/docs/demo.png)
 
 ## Quick start
 
-Requires Rust 1.92+ and `eframe` with the **wgpu** renderer.
+Requires Rust 1.92+, egui/eframe 0.35, and wgpu 29. Use the **wgpu** renderer; glow is unsupported.
+The `wayland` and `x11` features below enable Linux windowing.
 
 ```toml
 [dependencies]
-eframe = { version = "0.35", default-features = false, features = ["default_fonts", "wgpu"] }
+eframe = { version = "0.35", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11"] }
 egui = "0.35"
-egui_glass = "0.1"
+egui_glass = "0.1.2"
 ```
 
 ```rust
@@ -63,13 +69,29 @@ fn main() -> eframe::Result {
 
 That is the whole integration: `init` once, give the glass something to refract, draw glass.
 
+## Before adopting
+
+This is a **0.1 library**: suitable for experimenting with glass in native egui apps, with a
+small API that may evolve before 1.0. Evaluate rendering and interaction on your target devices.
+
+- Static glass samples the registered image; it does not automatically capture widgets behind it.
+  `LiveBackdrop` renders page content again off screen, adding layout and GPU work each frame.
+- Library tests run in CI on Linux, macOS, and Windows. Demo builds are checked on macOS and
+  Windows. These are build/test checks, not a GPU rendering certification; browser and mobile
+  targets are not covered by CI.
+- Glass controls do not provide an opaque accessibility fallback. Check contrast, keyboard
+  interaction, and assistive technology in your app; use standard egui controls when appropriate.
+- There are no default crate features. Enable `features = ["serde"]` to serialize `GlassStyle`.
+
 ## Docs
 
-- [Guide](docs/guide.md) — put glass into an existing app: backdrop, components, presets, dark
+- [Guide](https://github.com/heonny/egui-glass/blob/main/docs/guide.md) — put glass into an existing app: backdrop, components, presets, dark
   theme, glass over live content.
-- [Reference](docs/reference.md) — every function and `GlassStyle` field, how the shader works,
+- [Reference](https://github.com/heonny/egui-glass/blob/main/docs/reference.md) — every function and `GlassStyle` field, how the shader works,
   limits, the demo app, building the macOS app, publishing.
 - [docs.rs](https://docs.rs/egui_glass) — API docs.
+- [Contributing](https://github.com/heonny/egui-glass/blob/main/CONTRIBUTING.md) — development, bug reports, and release checks.
+- [Changelog](https://github.com/heonny/egui-glass/blob/main/CHANGELOG.md) — changes for the next release.
 
 ## Demo
 
@@ -83,3 +105,5 @@ make install                           # macOS: Egui Glass.app into /Application
 
 MIT. "Liquid Glass" is Apple's name for its design language; this is an independent
 reimplementation of the look and is not affiliated with Apple.
+See [asset provenance](https://github.com/heonny/egui-glass/blob/main/docs/assets.md) for the demo
+images and branding; these assets are not included in the library crate.

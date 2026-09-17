@@ -40,6 +40,11 @@ impl LiveBackdrop {
     /// so the twin lays text out identically. Create it before [`crate::set_backdrop`]
     /// and before registering images with [`crate::register_native_texture`], so the
     /// off-screen pass can draw them too.
+    /// Create one live backdrop per renderer; clones share its off-screen context.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`crate::init`] has not been called on this renderer.
     pub fn new(render_state: &RenderState, fonts: Option<FontDefinitions>) -> Self {
         let twin = Context::default();
         if let Some(fonts) = fonts {
@@ -56,6 +61,7 @@ impl LiveBackdrop {
         Self { twin }
     }
 
+    /// Updates the off-screen fonts to match the main egui context.
     pub fn set_fonts(&self, fonts: FontDefinitions) {
         self.twin.set_fonts(fonts);
     }
@@ -63,6 +69,11 @@ impl LiveBackdrop {
     /// Shows `add_contents` in `ui` as usual and, this frame only, makes an
     /// off-screen copy of it the backdrop of every glass surface. Draw your
     /// glass outside of `add_contents` (floating areas, later widgets).
+    ///
+    /// The closure runs for both visible and off-screen layout, potentially more
+    /// often if egui requests another pass. Keep non-UI side effects outside it:
+    /// do not advance simulations, write files, or send requests on each call.
+    /// This adds an extra layout/render and mipmap generation to each frame.
     pub fn run(&self, ui: &mut Ui, clear: Color32, mut add_contents: impl FnMut(&mut Ui)) {
         let ctx = ui.ctx().clone();
         let slot = ui.painter().add(Shape::Noop);

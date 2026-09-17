@@ -68,6 +68,7 @@ impl Default for Glass {
 }
 
 impl Glass {
+    /// Creates a container with `style` and a 16-point inner margin.
     pub fn new(style: GlassStyle) -> Self {
         Self { style, inner_margin: Margin::same(16) }
     }
@@ -82,11 +83,14 @@ impl Glass {
         Self::new(GlassStyle::panel_dark())
     }
 
+    /// Sets the space between the glass edge and its contents.
     pub fn inner_margin(mut self, margin: impl Into<Margin>) -> Self {
         self.inner_margin = margin.into();
         self
     }
 
+    /// Lays out contents with flat control visuals and paints glass behind them.
+    /// Returns the closure's result and the container's hover response.
     pub fn show<R>(self, ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
         let background = ui.painter().add(Shape::Noop);
         let max_rect = expand_margin(ui.available_rect_before_wrap(), self.inner_margin, -1.0);
@@ -110,6 +114,7 @@ pub struct GlassButton {
 }
 
 impl GlassButton {
+    /// Creates a capsule button with a minimum size of 44 by 44 points.
     pub fn new(text: impl Into<WidgetText>) -> Self {
         Self {
             text: text.into(),
@@ -120,6 +125,7 @@ impl GlassButton {
         }
     }
 
+    /// Replaces the material and corner shape, including the default capsule radius.
     pub fn style(mut self, style: GlassStyle) -> Self {
         self.style = style;
         self
@@ -131,16 +137,19 @@ impl GlassButton {
         self
     }
 
+    /// Sets the minimum size in logical points; larger content can expand it.
     pub fn min_size(mut self, size: Vec2) -> Self {
         self.min_size = size;
         self
     }
 
+    /// Overrides the automatic light/dark label colour.
     pub fn text_color(mut self, color: Color32) -> Self {
         self.text_color = Some(color);
         self
     }
 
+    /// Draws the button and returns its interaction response, including clicks.
     pub fn show(self, ui: &mut Ui) -> Response {
         let galley = self.text.into_galley(ui, None, f32::INFINITY, egui::TextStyle::Button);
         let size = (galley.size() + 2.0 * self.padding).max(self.min_size);
@@ -177,15 +186,18 @@ impl Default for GlassToolbar {
 }
 
 impl GlassToolbar {
+    /// Creates a toolbar with a capsule-shaped material and 6-point item spacing.
     pub fn new(style: GlassStyle) -> Self {
         Self { style: style.capsule(), spacing: 6.0 }
     }
 
+    /// Sets horizontal spacing between items in logical points.
     pub fn spacing(mut self, spacing: f32) -> Self {
         self.spacing = spacing;
         self
     }
 
+    /// Draws a horizontal row of flat controls on a glass capsule.
     pub fn show<R>(self, ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
         Glass::new(self.style).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = self.spacing;

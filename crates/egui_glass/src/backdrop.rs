@@ -32,6 +32,14 @@ pub fn backdrop_rect(ctx: &Context) -> Option<Rect> {
 
 /// Uploads `image` as the backdrop every glass surface refracts, replacing any
 /// previous one. Returns the egui texture id so the app can draw it.
+/// The previous backdrop's texture id is freed and must no longer be used.
+/// Image dimensions and pixel storage must be consistent and fit the device's
+/// texture limits. Create [`crate::LiveBackdrop`] before uploading if needed.
+///
+/// # Panics
+///
+/// Panics if [`crate::init`] has not been called. Invalid images or dimensions
+/// exceeding the GPU's limits can produce wgpu validation errors.
 pub fn set_backdrop(ctx: &Context, render_state: &RenderState, image: &ColorImage) -> TextureId {
     let [w, h] = [image.size[0].max(1) as u32, image.size[1].max(1) as u32];
     let mut renderer = render_state.renderer.write();
@@ -78,11 +86,15 @@ pub fn set_backdrop(ctx: &Context, render_state: &RenderState, image: &ColorImag
 /// Registers a wgpu texture for drawing with egui, in the app's renderer and
 /// (if a [`crate::LiveBackdrop`] exists) in its off-screen renderer too, so
 /// images drawn with it also show through live glass.
+/// Create the live backdrop first; textures registered earlier are not mirrored
+/// retroactively. Release the returned id with [`free_native_texture_id`].
 pub fn register_native_texture(render_state: &RenderState, view: &wgpu::TextureView) -> TextureId {
     register_native_texture_in(&mut render_state.renderer.write(), &render_state.device, view)
 }
 
 /// Frees a texture registered with [`register_native_texture`].
+/// Stop drawing with the id before freeing it. Do not free the active backdrop
+/// returned by [`set_backdrop`]; replacing the backdrop frees that id automatically.
 pub fn free_native_texture_id(render_state: &RenderState, id: &TextureId) {
     free_native_texture(&mut render_state.renderer.write(), id);
 }

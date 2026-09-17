@@ -24,7 +24,8 @@ works, its limits, the demo, packaging and publishing. For the short version see
 | `init(render_state: &RenderState, msaa_samples: u32)` | once | Compiles the glass pipeline and installs shared GPU resources into egui-wgpu's callback resources. `msaa_samples` must match `NativeOptions::multisampling` (pass 1 when that is 0). |
 
 Requirements: Rust 1.92+, `eframe`/`egui-wgpu` 0.35, wgpu 29. Backends: Metal, Vulkan, DX12
-(anything wgpu drives). The glow backend is not supported because the effect is a wgpu paint
+(selected by the host's wgpu configuration). These are backend options, not a claim of runtime
+verification on every device. The glow backend is not supported because the effect is a wgpu paint
 callback.
 
 Dependencies of the library: `egui`, `egui-wgpu`, `wgpu`, `bytemuck`; `serde` behind the `serde`
@@ -145,9 +146,10 @@ with a second `egui_wgpu::Renderer` into an sRGB texture, builds the mip pyramid
 this frame's backdrop. Glass drawn after `run` (floating areas, later widgets) samples it; glass
 inside `page` would be rendered into the backdrop too, so keep it outside.
 
-Cost: one extra layout and draw of the page per frame plus the pyramid blits. Twin-side
-interaction never fires (no events), so the closure must not rely on being called once per frame
-for side effects. Native textures are known only to the app renderer; `register_native_texture`
+Cost: one extra layout and draw of the page per frame plus the pyramid blits. The twin pass
+clears input events, but the closure still executes again (and egui may request more passes).
+Keep non-UI side effects outside it; do not rely on it running once per frame. Native textures
+are known only to the app renderer; `register_native_texture`
 mirrors them (with id remapping) into the twin renderer. If a frame does not call `run`, glass
 falls back to the static backdrop automatically.
 
@@ -187,7 +189,16 @@ when the surface format is sRGB. Each surface costs one draw call and one 256-by
 - Very large blur values on tiny surfaces read as a flat colour; keep `blur` under the surface's
   half size for small controls.
 - MSAA: pass the same sample count to `init` as `NativeOptions::multisampling`, otherwise pipeline
-  creation fails.
+  validation fails (0 and 1 both mean one sample).
+- Create one `LiveBackdrop` per renderer, before registering textures. Creating another replaces
+  the off-screen renderer and its texture registrations. Keep the twin's fonts synchronized.
+- `set_backdrop` invalidates the previous backdrop's texture id. Stop drawing with that id after
+  replacing the image; do not manually free the currently active backdrop.
+- Browser/mobile builds and multi-viewport rendering are not covered by CI. Test your intended
+  host configuration before adopting the library.
+- `GlassButton` paints a custom control and does not register standard button accessibility
+  metadata. Verify assistive technology support and keyboard behavior in your app. There is no
+  automatic opaque/reduced-transparency mode; provide an app-level fallback if needed.
 
 ## Demo app
 
@@ -236,9 +247,12 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features    # kept warning-free
 ```
 
-CI (`.github/workflows/ci.yml`) runs library tests and clippy on Linux, macOS and Windows and
-builds the demo on macOS and Windows. Releases: bump `version` in `crates/egui_glass/Cargo.toml`,
-commit, `git tag vX.Y.Z && git push origin vX.Y.Z`; `release.yml` checks the tag against the
-version and publishes to crates.io with the `CARGO_REGISTRY_TOKEN` secret.
+CI (`.github/workflows/ci.yml`) runs default/serde library tests and clippy on Linux, macOS and
+Windows, checks Rust 1.92, builds API docs and the package, and builds the demo on macOS and
+Windows. These automated checks do not exercise GPU rendering.
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for the release checklist. `release.yml` checks the tag
+against the crate version, runs library tests, checks docs, and performs a publish dry run before
+publishing to crates.io with the `CARGO_REGISTRY_TOKEN` secret.
 
 See `CLAUDE.md` for the code layout and the design rules the look follows.

@@ -129,15 +129,18 @@ impl GlassStyle {
         }
     }
 
+    /// Sets the corner radius in logical points; infinity requests a capsule.
     pub const fn with_corner_radius(mut self, radius: f32) -> Self {
         self.corner_radius = radius;
         self
     }
 
+    /// Rounds the ends to half the surface's shorter dimension.
     pub const fn capsule(self) -> Self {
         self.with_corner_radius(f32::INFINITY)
     }
 
+    /// Sets the overlay colour; alpha controls how much tint is mixed in.
     pub const fn with_tint(mut self, tint: Color32) -> Self {
         self.tint = tint;
         self

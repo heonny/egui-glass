@@ -37,8 +37,9 @@ egui_glass::show_backdrop(ui, ui.max_rect());                  // aspect-fill in
 egui_glass::show_backdrop_mapped(ui, image_rect, clip_rect, page_color);
 ```
 
-Anything egui draws on top of the backdrop (text, widgets) shows through the glass as the page
-colour, not refracted. For most apps this is fine and it is the cheap path.
+Anything egui draws on top of the backdrop (text, widgets) is absent from the refracted texture:
+glass samples the registered image at that location. Outside the image it samples the page
+colour. This is the cheaper path.
 
 **B. Live backdrop**: glass refracts everything underneath, text included. Your page content is
 laid out and drawn a second time off screen (see the reference for cost and caveats):
@@ -54,6 +55,9 @@ Glass::panel().show(ui, |ui| { /* floats over the page */ });
 
 Images drawn inside the page must be registered with `egui_glass::register_native_texture`
 (`set_backdrop` does this for you) so the off-screen pass can draw them.
+The closure runs for both visible and off-screen layout; keep file writes, network requests,
+and simulation updates outside it. Create one live backdrop per renderer before registering
+textures, and keep its fonts synchronized with the main context.
 
 ## 4. Draw glass
 
