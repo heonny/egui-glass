@@ -112,6 +112,23 @@ fn sd_smooth_box(pos: vec2<f32>, half: vec2<f32>) -> f32 {
     return select(n.dist, -n.dist, n.cross < 0.0);
 }
 
+// Smooth outward normal of a rounded box whose corner radius matches the smoothed
+// corner span. Used for the lens direction and lighting: the polyline SDF's finite
+// difference normal is piecewise constant and would show as spokes in the refraction.
+fn rounded_normal(pos: vec2<f32>, half: vec2<f32>, r: f32) -> vec2<f32> {
+    let q = abs(pos) - (half - vec2<f32>(r));
+    var n: vec2<f32>;
+    if (q.x > 0.0 && q.y > 0.0) {
+        n = normalize(q + vec2<f32>(1e-5, 0.0));
+    } else if (q.x > q.y) {
+        n = vec2<f32>(1.0, 0.0);
+    } else {
+        n = vec2<f32>(0.0, 1.0);
+    }
+    let sgn = select(vec2<f32>(-1.0), vec2<f32>(1.0), pos >= vec2<f32>(0.0));
+    return n * sgn;
+}
+
 // One backdrop tap at a screen position (px). Beyond the image it fades to the
 // fill colour over the blur radius, so a blurred image edge stays smooth.
 fn tap(p: vec2<f32>, lod: f32) -> vec3<f32> {
@@ -157,12 +174,8 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         discard;
     }
 
-    // Outward normal via finite differences of the SDF.
-    let eps = 1.0;
-    let n = normalize(vec2<f32>(
-        sd_smooth_box(p - center + vec2<f32>(eps, 0.0), half) - sd_smooth_box(p - center - vec2<f32>(eps, 0.0), half),
-        sd_smooth_box(p - center + vec2<f32>(0.0, eps), half) - sd_smooth_box(p - center - vec2<f32>(0.0, eps), half),
-    ) + vec2<f32>(1e-5, 0.0));
+    // Outward normal: analytic and smooth (see rounded_normal).
+    let n = rounded_normal(p - center, half, min(u.corner_a.x, min(half.x, half.y)));
 
     // Lens profile: 0 deep inside, 1 at the edge; rounded-glass falloff.
     let t = clamp((d + u.edge_width) / max(u.edge_width, 1.0), 0.0, 1.0);
@@ -190,7 +203,10 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // Specular rim: a thin bright crescent towards the light and a second, softer
     // one opposite (light bouncing inside the slab), as on a polished glass edge.
     let ndl = dot(n, u.light_dir);
-    let rim = pow(t, 7.0) * (0.95 * max(ndl, 0.0) + 0.55 * max(-ndl, 0.0)) + pow(t, 4.0) * 0.06;
+    // Highlights gather where the edge curves (corners, capsule ends); straight edges
+    // only get a faint line, as on a polished slab lit by a broad source.
+    let curved = 4.0 * n.x * n.x * n.y * n.y;
+    let rim = pow(t, 7.0) * (0.3 + 0.7 * curved) * (1.0 * max(ndl, 0.0) + 0.6 * max(-ndl, 0.0)) + pow(t, 4.0) * 0.05;
     let sheen = 0.05 * (1.0 - clamp((p.y - u.rect_min.y) / max(half.y * 2.0, 1.0), 0.0, 1.0));
     col += vec3<f32>(1.0) * u.specular * (rim + sheen);
     // A faint dark line at the very edge on the unlit side reads as the slab's thickness

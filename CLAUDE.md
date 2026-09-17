@@ -67,10 +67,13 @@ blank, so retry rather than assume a bug.
 - Verify visually after shader or layout changes: capture the demo on a 2x display and inspect
   zoomed crops of a control over a busy photo; a CPU replica of the SDF was the fastest way to
   find the sign bug.
-- Tuned look (compared against Apple's toolbar/sidebar screenshots): small controls are clear
-  (tint ~44/255 white, blur 8, refraction 18 over a 22 px edge zone, chroma 0.3) with a thin bright
-  rim on the lit edge, a softer one opposite and a faint seam line; panels are frosted (blur 40,
-  tint 130/255, radius 28). Change these only with side-by-side captures.
+- Tuned look (compared at 2x against iOS 26 home/lock screens on the same Monet wallpaper):
+  small controls are lightly frosted (white tint 52/255, blur 10, brightness 1.06, refraction 18
+  over a 22 px edge zone, chroma 0.3); highlights are corner-weighted (`4 n.x² n.y²`), a faint
+  seam line marks the unlit edge; panels are frosted but see-through with a visible edge lens
+  (blur 36, tint 80/255, refraction 10, radius 28). The lens/lighting normal is the analytic
+  rounded-box normal, not the polyline SDF gradient (that one is faceted and shows as spokes).
+  Change these only with side-by-side captures.
 
 ## Release
 
