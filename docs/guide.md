@@ -148,6 +148,15 @@ With the `serde` feature `GlassStyle` is `Serialize + Deserialize` (missing fiel
 defaults), so a style can live in your settings file. The demo's Export / Import buttons do this
 with JSON.
 
+## Live quality in the development version
+
+In the development version, use `live.run_with_quality(ui, clear,
+egui_glass::LiveBackdropQuality::Balanced, closure)` to render the backdrop at 0.75×
+resolution, or `Performance` for 0.5×. The existing `run` keeps full resolution.
+The visible page is unaffected, but refracted small text becomes softer. Extra layout
+work is unchanged. The demo's Quality selector lets you compare all three settings;
+old imported JSON settings default to full quality. See [performance](performance.md).
+
 ## Checklist when something looks off
 
 - Glass is plain white / page-coloured: nothing registered underneath — call `set_backdrop` and
@@ -156,3 +165,13 @@ with JSON.
 - A floating panel lands in the wrong place on the first frame: `Area::constrain(false)`.
 - Wheel does not scroll under a floating panel: egui routes the wheel to the topmost layer; see
   the demo's forwarding in `scene()`.
+
+## Simpler setup in the development version
+
+The demo now stores a `GlassContext` instead of separately calling `init`, constructing
+`LiveBackdrop`, and passing the renderer to every image upload. Create it with
+`GlassContext::new(ctx, rs, samples)?`, call `glass.set_fonts(fonts)` once for both contexts,
+and upload images with `glass.set_backdrop(&image)?`. Use `glass.live_backdrop()` for live
+rendering. Existing standalone setup remains supported; do not mix setup paths on the
+same renderer. See [managed setup](reference.md#managed-setup-development-version) for errors
+and owned native-texture handles.

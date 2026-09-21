@@ -9,7 +9,8 @@
 Glass surfaces for [egui](https://github.com/emilk/egui), inspired by Apple's *Liquid Glass*:
 edge refraction, frosted blur, tint, and a thin bevel highlight, rendered on the GPU through
 `egui-wgpu`. Includes containers, capsule buttons, glass sliders, toolbars, light/dark presets, and an optional
-live backdrop for refracting egui content. No animation is provided.
+live backdrop for refracting egui content. The development version adds short hover/press
+material transitions for buttons and sliders; released 0.1.5 switches states instantly.
 
 ![demo](https://raw.githubusercontent.com/heonny/egui-glass/main/docs/demo.png)
 
@@ -116,11 +117,26 @@ egui::Area::new(egui::Id::new("overlay"))
     });
 ```
 
-The page closure runs twice: keep file writes, network calls, state transitions and other
+The page closure runs for visible and off-screen layout, potentially again if egui requests
+another pass: keep file writes, network calls, state transitions and other
 side effects outside it. Create one live backdrop per renderer. For custom fonts, pass
 `Some(font_definitions)` and keep them synchronized with the main context. Images in the
 page must use textures registered with `egui_glass::register_native_texture` (`set_backdrop`
 does this for its image); ordinary egui texture uploads are not automatically mirrored.
+
+The development version adds per-frame live backdrop quality (not yet released):
+
+```rust
+live.run_with_quality(ui, egui::Color32::WHITE, egui_glass::LiveBackdropQuality::Balanced, |page| {
+    page.label("This text is part of the refracted page.");
+});
+```
+
+`Full` uses native resolution, `Balanced` uses 0.75× width and height, and `Performance`
+uses 0.5×. The existing `run` method stays at `Full`. Lower settings reduce off-screen
+pixel and mipmap work while keeping the visible page and glass geometry at native resolution.
+Small refracted text becomes softer; the extra UI layout cost remains. See the
+[benchmark instructions](https://github.com/heonny/egui-glass/blob/main/docs/performance.md) for measurement scope and local results.
 
 ## Add glass to an existing app
 
@@ -186,8 +202,20 @@ if *open {
 
 `Glass::show` and `GlassToolbar::show` apply flat visuals to child controls: transparent
 idle fills, capsule corners, changed foreground and selection colours, and no widget
-borders. This is local to their child UI. To retain your app's existing buttons, validation
-colours and focus styling, snapshot the style **before** entering the container:
+borders. This is local to their child UI. On the development version (not yet released),
+use `.preserve_theme(true)` to retain your app's existing buttons, validation colours and
+focus styling:
+
+```rust
+egui_glass::Glass::panel().preserve_theme(true).show(ui, |ui| {
+    let _ = ui.button("Uses the app's theme");
+});
+```
+
+`GlassToolbar` supports the same option. The default is `false`, keeping flat child visuals.
+This option preserves control visuals; glass material, padding and toolbar spacing still
+come from the glass container. In the released **0.1.5** version, snapshot the style
+**before** entering the container instead:
 
 ```rust
 let app_style = ui.style().clone();
@@ -236,6 +264,11 @@ choose an ordinary opaque `egui::Frame` in your app instead of drawing glass.
 
 ## Troubleshooting
 
+On the development version, `GlassButton` and `GlassSlider` animate their hover/press
+material changes using the local egui `Style::animation_time`, capped at 120 ms.
+Use `.animate(false)` on either widget, or set the host animation time to `0.0`, for instant
+transitions. Clicks, focus, slider values and thumb positions still update immediately.
+
 | Symptom | Check |
 |---|---|
 | No `wgpu_render_state` / no glass | Enable eframe's `wgpu` feature and select `Renderer::Wgpu`; glow is unsupported |
@@ -275,6 +308,8 @@ small API that may evolve before 1.0. Evaluate rendering and interaction on your
 - [docs.rs](https://docs.rs/egui_glass) — API docs.
 - [Contributing](https://github.com/heonny/egui-glass/blob/main/CONTRIBUTING.md) — development, bug reports, and release checks.
 - [Changelog](https://github.com/heonny/egui-glass/blob/main/CHANGELOG.md) — changes for the next release.
+- [Verification](https://github.com/heonny/egui-glass/blob/main/docs/verification.md) — automated GPU checks and remaining native testing.
+- [Performance](https://github.com/heonny/egui-glass/blob/main/docs/performance.md) — quality options, benchmark commands and measurement limits.
 
 ## Demo
 
@@ -284,9 +319,33 @@ cargo run -p egui_glass_demo --example minimal
 make install                           # macOS: Egui Glass.app into /Applications
 ```
 
+The development demo includes **Copy Rust** to copy the current material as a complete
+`egui_glass::GlassStyle` expression. **Modified** marks changes relative to the selected
+preset, and **Reset** restores that preset. After Import, the imported material becomes
+the reset baseline. Reset affects the material only; the Live backdrop toggle is unchanged.
+
 ## License
 
 MIT. "Liquid Glass" is Apple's name for its design language; this is an independent
 reimplementation of the look and is not affiliated with Apple.
 See [asset provenance](https://github.com/heonny/egui-glass/blob/main/docs/assets.md) for the demo
 images and branding; these assets are not included in the library crate.
+
+### Managed integration (development version)
+
+The unreleased `GlassContext` API combines initialization and resource management:
+
+```rust
+let glass = egui_glass::GlassContext::new(ctx, rs, 1)?;
+glass.set_fonts(font_definitions);
+glass.set_backdrop(&wallpaper)?;
+// Store `glass` in application state.
+```
+
+Use this in place of `init` and `LiveBackdrop::new`. Access live rendering through
+`glass.live_backdrop()`. Duplicate initialization and invalid images return `GlassError`;
+an invalid upload preserves the previous backdrop. Native textures registered through
+`glass.register_native_texture(&view)` return cloneable owning handles: retain them through
+rendering, then let the final handle release the registration in both renderers.
+See the [managed API reference](https://github.com/heonny/egui-glass/blob/main/docs/reference.md#managed-setup-development-version)
+for lifetime and MSAA requirements. The published 0.1.5 integration examples above remain valid.

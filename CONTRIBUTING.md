@@ -21,10 +21,22 @@ platform development libraries required by eframe/winit and the demo's file-dial
 CI currently checks the library on Linux, macOS, and Windows and builds the demo on macOS
 and Windows. The minimum Rust version is checked separately for the library.
 
+On a machine with a native wgpu adapter, also run:
+
+```bash
+cargo test -p egui_glass --all-features --locked --lib context_gpu -- --ignored --test-threads=1
+cargo run -p egui_glass_demo --example live_benchmark --release --locked
+```
+
+The GPU tests check managed initialization, font synchronization and texture ownership.
+They are ignored in the default suite. The benchmark checks rendered pixels before timing;
+see [verification scope](docs/verification.md) and [measurement limits](docs/performance.md).
+
 ## Repository layout
 
 - `crates/egui_glass`: public API, widgets, GPU renderer, and WGSL shaders.
 - `examples/demo`: interactive demo and the minimal integration example.
+- `examples/demo/examples/live_benchmark.rs`: headless rendering checks and frame timings.
 - `docs/guide.md`: the short integration path.
 - `docs/reference.md`: API tables, defaults, renderer details, and limitations.
 - `assets/branding` and `examples/asset`: repository/demo assets; see [provenance](docs/assets.md).

@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+These changes are available in the development checkout; the published crate remains 0.1.5.
+
+### Integration
+
+- Add `GlassContext` for one-call setup, shared font configuration, validated backdrop
+  uploads and cloneable `GlassTexture` handles that release both texture registrations.
+- Reject duplicate initialization and unsupported MSAA counts without replacing resources.
+- Migrate the demo to managed setup; preserve the standalone integration API.
+- Fix live backdrop font updates being lost when copying visible-context memory.
+
+### Rendering
+
+- Add `LiveBackdropQuality` and `run_with_quality` for full, three-quarter, or half-resolution
+  live backdrops. Existing `run` stays full quality; projection and blur units are preserved.
+- Add a demo quality selector and backward-compatible JSON settings for it.
+- Add a headless GPU benchmark with pixel-readback checks for quality switching, resize,
+  odd dimensions, HiDPI and returning to static backdrops.
+
+### Demo
+
+- Add Copy Rust for a complete `GlassStyle` expression, preserving float precision and tint values.
+- Keep the selected preset visible while editing and show a Modified indicator.
+- Add Reset to restore the selected preset or last imported material; backdrop mode is unchanged.
+
+### Components
+
+- Animate button and slider hover/press materials using the host animation time, capped
+  at 120 ms. Add `.animate(false)` for instant transitions; a zero host animation time
+  also disables motion. Input, focus and slider position remain immediate.
+- Add `Glass::preserve_theme` and `GlassToolbar::preserve_theme` to keep the host UI's control
+  visuals without manually restoring its style. Flat glass visuals remain the default.
+
 ## 0.1.5 - 2026-09-17
 
 ### Documentation

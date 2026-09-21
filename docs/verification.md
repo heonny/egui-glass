@@ -1,8 +1,18 @@
 # GPU and accessibility verification
 
-Local verification on 2026-09-17, using macOS on Apple M1 Pro, the wgpu demo renderer, and
-egui/eframe 0.35. These results cover this development checkout, including the accessibility
-changes in 0.1.4. They do not certify every GPU, operating system, or screen reader.
+The 2026-09-21 live quality changes were additionally checked with a headless Metal renderer:
+quality switching, returning to static mode, resizing, odd dimensions and HiDPI passed GPU
+pixel readback. See [performance results and scope](performance.md). These checks do not
+replace native-window interaction or visual-quality testing.
+
+The native checks below were performed on 2026-09-17, using macOS on Apple M1 Pro,
+the wgpu demo renderer and egui/eframe 0.35. They cover the 0.1.4 accessibility changes,
+not the later development UI changes. They do not certify every GPU, OS or screen reader.
+
+The 2026-09-21 development suite passed 32 tests, including documentation examples, plus
+three explicitly enabled GPU tests. Clippy and API documentation passed with warnings denied.
+Theme preservation, material transitions, style reset/export and legacy settings import have
+automated coverage. Native-window visual checks for these changes remain outstanding.
 
 ## Automated checks
 
@@ -54,3 +64,11 @@ are an approximation of the reference image, not a platform-native SwiftUI contr
 - Choose an app-level reduced-transparency fallback and check contrast over supported imagery.
 
 Repeat the native checks after changes to shaders, callback ordering, layout, or focus painting.
+
+## Managed integration checks
+
+Run `cargo test -p egui_glass --all-features --lib context_gpu -- --ignored --test-threads=1`
+on a machine with a native wgpu adapter. These tests are ignored by default so non-GPU CI
+can still run the workspace suite. They check duplicate setup, preservation on invalid
+uploads, mirrored registration/replacement, final-owner release and font synchronization
+across frames and runtime updates. The managed setup rustdoc example is compile-tested.

@@ -16,6 +16,7 @@ works, its limits, the demo, packaging and publishing. For the short version see
 8. [Demo app](#demo-app)
 9. [macOS app bundle](#macos-app-bundle)
 10. [Development and releases](#development-and-releases)
+11. [Managed setup (development version)](#managed-setup-development-version)
 
 ## Setup
 
@@ -60,11 +61,14 @@ Glass::panel()            // GlassStyle::panel()
 Glass::panel_dark()
 Glass::new(style)
     .inner_margin(Margin)  // default Margin::same(16)
+    .preserve_theme(true) // unreleased; default false
     .show(ui, |ui| …) -> InnerResponse<R>
 ```
 
 Controls inside get flat visuals (transparent idle background, soft translucent highlight, capsule
 corners, text colour matched to the glass) so glass is never stacked on glass.
+Set `.preserve_theme(true)` to inherit the parent UI's control visuals instead.
+Glass material and padding are unchanged; match the tint to the inherited text colours.
 
 ### `GlassButton`
 
@@ -75,10 +79,14 @@ GlassButton::new(text)     // capsule, GlassStyle::regular()
     .min_size(Vec2)        // default 44 x 44
     .text_color(Color32)   // default: strong text colour, white on dark glass
     .accessible_name("Back") // screen-reader name; defaults to the visible text
+    .animate(false)        // unreleased; default true
     .show(ui) -> Response
 ```
 
 Hover and press use `style.hovered()` / `style.pressed()` (brighter / dimmer variants).
+In the development version, brightness, specular strength and tint transition using the
+local `Style::animation_time`, capped at 120 ms. `.animate(false)` or a host animation
+time of zero switches instantly. Geometry, input and focus are not animated.
 Keyboard focus adds an outline in the theme's selection stroke colour. Tab / Shift+Tab and
 Enter / Space use egui's standard focus and activation handling. The button registers its role,
 name, enabled state, and actions with egui's accessibility tree; the host must enable its native
@@ -93,7 +101,14 @@ A capsule bar for flat buttons (`ui.button`, `ui.selectable_label`, …):
 GlassToolbar::default().spacing(6.0).show(ui, |ui| { let _ = ui.button("↩"); }) -> InnerResponse<R>
 ```
 
+The unreleased `.preserve_theme(true)` option preserves the parent UI's control visuals,
+as on `Glass`. Toolbar spacing and padding still apply.
+
 ### `GlassSlider` (since 0.1.4)
+
+The development version supports `.animate(false)` to disable hover/press material
+transitions, with the same timing policy as `GlassButton`. The thumb retains its white
+tint and subdued highlight; the value and thumb position always update immediately.
 
 Horizontal linear slider for `&mut f32`, with an editable value above the track:
 
@@ -168,6 +183,22 @@ live.set_fonts(font_definitions);                                       // if th
 live.run(ui, clear_color, |ui| page(ui));                               // every frame
 ```
 
+The development version also provides
+`run_with_quality(ui, clear_color, LiveBackdropQuality, closure)`:
+
+| Quality | Off-screen width and height | Approximate pixel count |
+|---|---|---|
+| `Full` (default for `run`) | 1× | 100% |
+| `Balanced` | 0.75× | 56.25% |
+| `Performance` | 0.5× | 25% |
+
+Dimensions round up to whole pixels. Quality is selected per call, with no shared mutable
+quality setting between clones. Resizing or changing quality reallocates the target only
+when its dimensions change. Logical projection and glass geometry stay unchanged, and
+mip selection accounts for backdrop resolution so the requested blur remains in points.
+This reduces rasterization and mipmap cost, not the second layout or main glass draw.
+Lower settings soften small refracted details. See [performance](performance.md).
+
 How: `run` shows `page` in `ui` as usual, then lays it out a second time in a **twin egui
 context** (memory cloned from the main one, input events cleared, a `Ui` with the same id and
 rect so scroll state matches), tessellates it and, inside a paint-callback `prepare`, renders it
@@ -231,9 +262,15 @@ when the surface format is sRGB. Each surface costs one draw call and one 256-by
 
 ## Demo app
 
+The development version adds **Copy Rust**, **Reset**, and a **Modified** indicator.
+Copy Rust produces a complete `egui_glass::GlassStyle` expression using exact premultiplied
+tint bytes and round-trip float literals. Reset restores the last selected preset or
+successfully imported material, leaving Live backdrop unchanged. Selecting a preset or
+importing a material establishes a new baseline; Export and Copy Rust do not change it.
+
 `cargo run -p egui_glass_demo` (`examples/demo`). Left glass panel: grouped glass sliders for every
 numeric style field, presets, a *Live backdrop* toggle, and pinned Export / Import actions for
-`{ style, live_mode }` as JSON through native
+`{ style, live_mode, live_quality }` as JSON through native
 file dialogs. Sidebar items switch between the bundled photos (`examples/asset`); drop an image
 onto the window to load your own; drag the floating glass around and try the Volume slider card.
 A dark tint switches the whole
@@ -287,3 +324,25 @@ against the crate version, runs library tests, checks docs, and performs a publi
 publishing to crates.io with the `CARGO_REGISTRY_TOKEN` secret.
 
 See `CLAUDE.md` for the code layout and the design rules the look follows.
+
+## Managed setup (development version)
+
+`GlassContext::new(ctx, render_state, msaa_samples) -> Result<GlassContext, GlassError>`
+replaces the manual `init` / `LiveBackdrop::new` sequence. Store the result in app state.
+The sample count must match the host renderer (0 means 1). The existing functions remain
+available; choose one setup path for each renderer/context pair.
+
+- `set_fonts(fonts)` configures both visible and offscreen contexts, including later updates.
+- `set_backdrop(&image)` validates dimensions, pixel count and the device texture limit.
+  Invalid images leave the existing backdrop intact. Successful replacement frees its old ID.
+- `live_backdrop()` exposes `run` and `run_with_quality` with their existing closure contract.
+- `register_native_texture(&view)` returns a `GlassTexture`. Use `handle.id()` in widgets.
+  Clones share ownership; the final drop frees the ID in both renderers. Keep the handle
+  until the frame finishes rendering, and drop it outside renderer lock guards. Do not
+  manually free this ID through the low-level API.
+
+`GlassError` distinguishes duplicate setup, unsupported sample counts, malformed images
+and oversized images. Allocation/device errors still use wgpu's error handling. Custom
+fonts installed elsewhere are not automatically captured: use the manager's setter.
+The twin renderer is initialized eagerly, but does no offscreen rendering until `run`.
+Shared pipelines and the active backdrop live with the renderer, not the manager handle.

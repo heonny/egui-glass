@@ -8,7 +8,7 @@ photos in `examples/asset`.
 
 ```bash
 cargo run -p egui_glass_demo                              # demo (eframe + wgpu)
-cargo test --workspace --all-features                     # unit tests (corner math, serde)
+cargo test --workspace --all-features                     # CPU, interaction and doc tests
 cargo clippy --workspace --all-targets --all-features     # must stay warning-free
 make bundle | make install                                 # macOS .app via scripts/bundle-macos.sh
 ```
@@ -33,12 +33,18 @@ blank, so retry rather than assume a bug.
   the static and the live backdrop.
 - `live.rs` — `LiveBackdrop`: twin egui context rendered off screen inside a paint-callback
   `prepare`, then bound as this frame's backdrop.
+- `context.rs` — managed setup, validated uploads and owned native-texture registrations;
+  `context_gpu.rs` — opt-in GPU lifecycle and font regression tests.
+- `live_quality.rs` — per-frame backdrop resolution; `animation.rs` — shared button/slider
+  material transitions, capped at 120 ms and disabled by zero host animation time.
 - `style.rs` — `GlassStyle` and presets; `widgets.rs` — `Glass`, `GlassButton`, `GlassToolbar`,
   `paint_glass`, flat visuals for controls sitting on glass.
 - `assets/branding/` — app icon (`EguiGlass.icns`, `app-icon.png`) and README logo; keep the
   crab / copper-and-cyan identity, do not regenerate these programmatically.
 - `examples/demo/src/main.rs` — the demo page, layouts, theme, settings export/import;
   `fonts.rs` — platform UI fonts with egui's as fallback.
+- `examples/demo/src/style_editor.rs` — material baseline, reset and Rust export;
+  `controls.rs` — settings controls and backdrop quality selector.
 
 ## Design rules
 
@@ -101,6 +107,11 @@ links; `docs/guide.md` = the short path to using it in an app; `docs/reference.m
 (API tables, every `GlassStyle` field with preset defaults, shader, limits, demo, packaging,
 releases). When a default or an API changes, update the reference table and, if it touches the
 short path, the guide.
+
+Verification: [GPU and accessibility checks](docs/verification.md),
+[performance methodology and results](docs/performance.md), and [asset provenance](docs/assets.md).
+Implementation records: [live quality](docs/live-quality-plan.md) and
+[managed context](docs/managed-context-plan.md).
 
 ## Conventions
 
