@@ -1,9 +1,12 @@
 use std::ops::RangeInclusive;
 
 use eframe::egui::{self, Color32, Margin, Vec2};
-use egui_glass::{Glass, GlassButton, GlassSlider, GlassStyle};
+use egui_glass::{Glass, GlassButton, GlassSlider, GlassStyle, LiveBackdropQuality};
 
+use crate::style_editor::{rust_code, StyleEditor};
 use crate::App;
+
+const ACTIONS_HEIGHT: f32 = 150.0;
 
 impl App {
     pub(super) fn controls_panel(&mut self, ui: &mut egui::Ui) {
@@ -17,15 +20,12 @@ impl App {
                     self.controls_header(ui);
                     ui.add_space(8.0);
                     ui.separator();
-                    let height = (ui.available_height() - 80.0).max(60.0);
+                    let height = (ui.available_height() - ACTIONS_HEIGHT).max(60.0);
                     egui::ScrollArea::vertical().id_salt("parameters").auto_shrink([false, false]).max_height(height).show(ui, |ui| {
                         self.controls_parameters(ui);
-                        if let Some(status) = &self.status {
-                            ui.add_space(12.0);
-                            ui.label(egui::RichText::new(status).small().weak());
-                        }
                     });
                     ui.separator();
+                    self.style_actions(ui);
                     let button_style = if self.dark { GlassStyle::dark() } else { GlassStyle::regular() };
                     ui.horizontal(|ui| {
                         let size = Vec2::new((ui.available_width() - 8.0) / 2.0, 40.0);
@@ -49,17 +49,30 @@ impl App {
             ui.horizontal(|ui| {
                 let width = (ui.available_width() - 8.0) / 2.0;
                 for (name, preset) in presets {
-                    let selected = self.style == preset;
+                    let selected = self.editor.name == name;
                     let mut button = egui::Button::new(name).selected(selected);
                     if selected { button = button.fill(accent.gamma_multiply(if self.dark { 0.3 } else { 0.14 })); }
                     if ui.add_sized([width, 30.0], button).clicked() {
-                        self.style = preset;
+                        self.editor = StyleEditor::new(name, preset);
+                        self.status = None;
                     }
                 }
             });
         }
         ui.add_space(6.0);
         ui.checkbox(&mut self.live_mode, "Live backdrop").on_hover_text("Refract the photo and page content. Adds an off-screen render pass.");
+        ui.add_enabled_ui(self.live_mode, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Quality");
+                for (quality, name) in [
+                    (LiveBackdropQuality::Full, "1×"),
+                    (LiveBackdropQuality::Balanced, "0.75×"),
+                    (LiveBackdropQuality::Performance, "0.5×"),
+                ] {
+                    ui.selectable_value(&mut self.live_quality, quality, name);
+                }
+            }).response.on_hover_text("Lower backdrop resolution reduces GPU work but softens refracted text. Page layout cost is unchanged.");
+        });
     }
 
     fn controls_parameters(&mut self, ui: &mut egui::Ui) {
@@ -67,7 +80,7 @@ impl App {
         let slider = |ui: &mut egui::Ui, value: &mut f32, range: RangeInclusive<f32>, name: &str, unit: &str| {
             GlassSlider::new(value, range).text(name).suffix(unit).style(material).show(ui);
         };
-        let s = &mut self.style;
+        let s = &mut self.editor.style;
         section(ui, "Material", true, |ui| {
             slider(ui, &mut s.blur, 0.0..=80.0, "Blur", " pt");
             slider(ui, &mut s.brightness, 0.5..=1.6, "Brightness", "×");
@@ -94,6 +107,27 @@ impl App {
             slider(ui, &mut s.shadow_offset, -30.0..=30.0, "Shadow offset", " pt");
             slider(ui, &mut s.shadow_spread, -10.0..=30.0, "Shadow spread", " pt");
         });
+    }
+
+    fn style_actions(&mut self, ui: &mut egui::Ui) {
+        let modified = self.editor.modified();
+        let label = if modified { format!("{} · Modified", self.editor.name) } else { self.editor.name.to_owned() };
+        ui.label(egui::RichText::new(label).small().strong());
+        ui.horizontal(|ui| {
+            let size = Vec2::new((ui.available_width() - 8.0) / 2.0, 30.0);
+            if ui.add_sized(size, egui::Button::new("Copy Rust")).on_hover_text("Copy this material as Rust code.").clicked() {
+                ui.ctx().copy_text(rust_code(self.editor.style));
+                self.status = Some("Rust code copied".to_owned());
+            }
+            ui.add_enabled_ui(modified, |ui| {
+                if ui.add_sized(size, egui::Button::new("Reset")).on_hover_text("Restore the selected preset or imported material.").clicked() {
+                    self.editor.reset();
+                    self.status = Some(format!("Restored {}", self.editor.name));
+                }
+            });
+        });
+        let status = self.status.as_deref().unwrap_or(" ");
+        ui.add(egui::Label::new(egui::RichText::new(status).small().weak()).truncate()).on_hover_text(status);
     }
 }
 

@@ -1,10 +1,11 @@
 mod fonts;
 mod controls;
+mod style_editor;
 
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Color32, ColorImage, Rect, Vec2};
-use egui_glass::{Glass, GlassButton, GlassSlider, GlassStyle, GlassToolbar, LiveBackdrop};
+use egui_glass::{Glass, GlassButton, GlassContext, GlassError, GlassSlider, GlassStyle, GlassToolbar, LiveBackdropQuality};
 
 const MAX_PHOTO_SIZE: u32 = 1600;
 
@@ -13,6 +14,8 @@ const MAX_PHOTO_SIZE: u32 = 1600;
 struct Settings {
     style: GlassStyle,
     live_mode: bool,
+    #[serde(default)]
+    live_quality: LiveBackdropQuality,
 }
 const SIDEBAR_WIDTH: f32 = 210.0;
 /// Page colours: macOS/iOS light and dark system backgrounds.
@@ -104,20 +107,21 @@ fn main() -> eframe::Result {
         viewport = viewport.with_position([x, y]); // dev knob: put the window on a specific display
     }
     let options = eframe::NativeOptions { renderer: eframe::Renderer::Wgpu, viewport, ..Default::default() };
-    eframe::run_native("egui_glass_demo", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
+    eframe::run_native("egui_glass_demo", options, Box::new(|cc| Ok(Box::new(App::new(cc)?))))
 }
 
 struct App {
-    style: GlassStyle,
+    editor: style_editor::StyleEditor,
     demo_volume: f32,
     selected: usize,
     photos: Vec<PathBuf>,
     /// Theme the visuals were last built for.
     dark: bool,
-    live: LiveBackdrop,
+    glass: GlassContext,
     /// Render the page off screen too, so glass refracts text as well as the photo.
     live_mode: bool,
-    /// Result of the last export / import, shown under the sliders.
+    live_quality: LiveBackdropQuality,
+    /// Result of the last style action.
     status: Option<String>,
     caption: &'static Caption,
     /// Pane rect of the previous frame; floating glass is re-anchored when it changes.
@@ -130,38 +134,41 @@ struct App {
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        cc.egui_ctx.set_fonts(fonts::system_fonts());
+    fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, GlassError> {
         let rs = cc.wgpu_render_state.as_ref().expect("demo requires the wgpu backend");
-        egui_glass::init(rs, 1);
-        let live = LiveBackdrop::new(rs, Some(fonts::system_fonts()));
+        let glass = GlassContext::new(&cc.egui_ctx, rs, 1)?;
+        glass.set_fonts(fonts::system_fonts());
         let mut photos: Vec<PathBuf> = asset_dir()
             .and_then(|dir| std::fs::read_dir(dir).ok())
             .map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "jpg" || e == "png")).collect())
             .unwrap_or_default();
         photos.sort();
         let selected = std::env::var("LG_PHOTO").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-        let style = match std::env::var("LG_PRESET").as_deref() {
-            Ok("dark") => GlassStyle::dark(),
-            Ok("clear") => GlassStyle::clear(),
-            _ => GlassStyle::regular(),
+        let (name, style) = match std::env::var("LG_PRESET").as_deref() {
+            Ok("dark") => ("Dark", GlassStyle::dark()),
+            Ok("clear") => ("Clear", GlassStyle::clear()),
+            _ => ("Regular", GlassStyle::regular()),
         };
-        let mut app = Self { style, demo_volume: 65.0, selected, photos, dark: style.is_dark(), live, live_mode: std::env::var_os("LG_LIVE").is_none_or(|v| v != "0"), status: None, caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
+        let mut app = Self { editor: style_editor::StyleEditor::new(name, style), demo_volume: 65.0, selected, photos, dark: style.is_dark(), glass, live_mode: std::env::var_os("LG_LIVE").is_none_or(|v| v != "0"), live_quality: LiveBackdropQuality::Full, status: None, caption: &FALLBACK_CAPTION, last_pane: Rect::NOTHING, scroll_offset: 0.0, portrait: false };
         app.apply_visuals(&cc.egui_ctx);
         if let Some(path) = app.photos.get(selected).cloned() {
-            app.load_photo(&cc.egui_ctx, rs, &path);
+            app.load_photo(&path);
         }
-        app
+        Ok(app)
     }
 
-    fn load_photo(&mut self, ctx: &egui::Context, rs: &eframe::egui_wgpu::RenderState, path: &Path) {
+    fn load_photo(&mut self, path: &Path) {
         match image::open(path) {
             Ok(img) => {
                 let photo = img.thumbnail(MAX_PHOTO_SIZE, MAX_PHOTO_SIZE).to_rgba8();
-                self.portrait = photo.height() > photo.width();
-                self.caption = caption_for(path);
                 let image = ColorImage::from_rgba_unmultiplied([photo.width() as usize, photo.height() as usize], &photo);
-                egui_glass::set_backdrop(ctx, rs, &image);
+                match self.glass.set_backdrop(&image) {
+                    Ok(_) => {
+                        self.portrait = photo.height() > photo.width();
+                        self.caption = caption_for(path);
+                    }
+                    Err(err) => self.status = Some(format!("Backdrop upload failed: {err}")),
+                }
             }
             Err(err) => eprintln!("failed to load {}: {err}", path.display()),
         }
@@ -169,7 +176,7 @@ impl App {
 
     fn export_settings(&mut self) {
         let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).set_file_name("glass-style.json").save_file() else { return };
-        let settings = Settings { style: self.style, live_mode: self.live_mode };
+        let settings = Settings { style: self.editor.style, live_mode: self.live_mode, live_quality: self.live_quality };
         self.status = Some(match serde_json::to_string_pretty(&settings).map_err(|e| e.to_string()).and_then(|json| std::fs::write(&path, json).map_err(|e| e.to_string())) {
             Ok(()) => format!("Exported to {}", path.display()),
             Err(err) => format!("Export failed: {err}"),
@@ -180,8 +187,9 @@ impl App {
         let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() else { return };
         self.status = Some(match std::fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|json| serde_json::from_str::<Settings>(&json).map_err(|e| e.to_string())) {
             Ok(settings) => {
-                self.style = settings.style;
+                self.editor = style_editor::StyleEditor::new("Imported", settings.style);
                 self.live_mode = settings.live_mode;
+                self.live_quality = settings.live_quality;
                 format!("Imported {}", path.display())
             }
             Err(err) => format!("Import failed: {err}"),
@@ -211,19 +219,19 @@ impl App {
 
     /// Flip the theme when the glass tint crosses from light to dark or back.
     fn sync_theme(&mut self, ctx: &egui::Context) {
-        if self.dark != self.style.is_dark() {
-            self.dark = self.style.is_dark();
+        if self.dark != self.editor.style.is_dark() {
+            self.dark = self.editor.style.is_dark();
             self.apply_visuals(ctx);
         }
     }
 
-    fn handle_drop(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+    fn handle_drop(&mut self, ctx: &egui::Context) {
         if let Some(path) = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone())) {
-            self.load_photo(ctx, frame.wgpu_render_state().unwrap(), &path);
+            self.load_photo(&path);
         }
     }
 
-    fn scene(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+    fn scene(&mut self, ui: &mut egui::Ui) {
         let pane = ui.max_rect();
         let Some(size) = egui_glass::backdrop_size(ui.ctx()).filter(|s| s.x > 0.0 && s.y > 0.0) else { return };
         let portrait = self.portrait;
@@ -243,15 +251,16 @@ impl App {
 
         // The page (photo + article) scrolls under the floating glass. In live mode it is also
         // rendered off screen so the glass refracts the text.
-        let live = self.live_mode.then(|| self.live.clone());
+        let live = self.live_mode.then(|| self.glass.live_backdrop().clone());
+        let quality = self.live_quality;
         let mut photo_rect = Rect::NOTHING;
         let mut page = |ui: &mut egui::Ui| photo_rect = self.page(ui, pane, size, paper_color, forced_offset);
         match live {
-            Some(live) => live.run(ui, paper_color, page),
+            Some(live) => live.run_with_quality(ui, paper_color, quality, page),
             None => page(ui),
         }
 
-        let style = self.style;
+        let style = self.editor.style;
         let relayout = self.last_pane != pane;
         self.last_pane = pane;
         let area = |id: &str, pos: egui::Pos2| {
@@ -275,7 +284,7 @@ impl App {
                     if ui.selectable_label(self.selected == i, format!("🖼  {item}")).clicked() && self.selected != i {
                         self.selected = i;
                         let path = self.photos[i].clone();
-                        self.load_photo(ui.ctx(), frame.wgpu_render_state().unwrap(), &path);
+                        self.load_photo(&path);
                     }
                 }
             });
@@ -376,11 +385,11 @@ impl eframe::App for App {
         false
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.sync_theme(ui.ctx());
-        self.handle_drop(ui.ctx(), frame);
+        self.handle_drop(ui.ctx());
         self.controls_panel(ui);
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.scene(ui, frame));
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.scene(ui));
     }
 }
 
@@ -399,4 +408,21 @@ fn sidebar_icon(ui: &mut egui::Ui) {
     ui.painter().rect_stroke(rect, 3.0, stroke, egui::StrokeKind::Inside);
     let x = rect.min.x + 7.0;
     ui.painter().line_segment([egui::pos2(x, rect.min.y + 1.0), egui::pos2(x, rect.max.y - 1.0)], stroke);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_settings_default_to_full_quality_and_new_settings_round_trip() {
+        let old: Settings = serde_json::from_str(r#"{"style":{},"live_mode":true}"#).unwrap();
+        assert_eq!(old.live_quality, LiveBackdropQuality::Full);
+        let settings = Settings { live_quality: LiveBackdropQuality::Performance, ..old };
+        let restored: Settings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(restored.live_quality, LiveBackdropQuality::Performance);
+        assert_eq!(restored.style, settings.style);
+        assert!(restored.live_mode);
+        assert!(serde_json::from_str::<Settings>(r#"{"style":{},"live_mode":true,"live_quality":"unknown"}"#).is_err());
+    }
 }
