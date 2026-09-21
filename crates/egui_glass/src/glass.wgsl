@@ -22,7 +22,7 @@ struct Uniforms {
     srgb_out: f32,
     light_dir: vec2<f32>,
     max_lod: f32,
-    _pad: f32,
+    backdrop_scale: f32,
     corner_a: vec4<f32>,   // p, a, b, c   (smoothed corner, px, see renderer::corner_params)
     corner_b: vec4<f32>,   // d, r, theta3
     fill: vec4<f32>,       // colour shown where a sample falls outside the backdrop rect
@@ -186,7 +186,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let lens = 1.0 - sqrt(max(1.0 - t * t, 0.0));
     let disp = n * u.refraction * lens;
 
-    let lod = clamp(log2(max(u.blur * 0.5, 1.0)), 0.0, u.max_lod);
+    let lod = clamp(log2(max(u.blur * u.backdrop_scale * 0.5, 1.0)), 0.0, u.max_lod);
     var col: vec3<f32>;
     if (u.chroma > 0.001) {
         let k = u.chroma * 0.5;

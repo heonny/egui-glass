@@ -28,6 +28,8 @@
 //! then upload the backdrop and register native textures. Draw the backdrop
 //! before glass each frame. The MSAA count passed to [`init`] must match the
 //! host renderer (0 is treated as 1).
+//! Alternatively, [`GlassContext`] initializes both renderers together and provides
+//! validated backdrop uploads, shared font configuration and owned native textures.
 //!
 //! # Features
 //!
@@ -38,8 +40,13 @@
 //! and [reference](https://github.com/heonny/egui-glass/blob/main/docs/reference.md)
 //! for integration details, performance costs, and limitations.
 
+mod animation;
 mod backdrop;
+mod context;
+#[cfg(test)]
+mod context_gpu;
 mod live;
+mod live_quality;
 mod mipgen;
 mod renderer;
 mod slider;
@@ -50,6 +57,8 @@ pub use backdrop::{
     backdrop_rect, backdrop_size, free_native_texture_id, register_native_texture, set_backdrop, show_backdrop, show_backdrop_mapped,
 };
 pub use live::LiveBackdrop;
+pub use context::{GlassContext, GlassError, GlassTexture};
+pub use live_quality::LiveBackdropQuality;
 pub use renderer::init;
 pub use slider::GlassSlider;
 pub use style::GlassStyle;

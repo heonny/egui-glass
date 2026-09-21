@@ -5,13 +5,14 @@
 //! is one extra layout and draw of that content per frame.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use egui::{ClippedPrimitive, Color32, Context, FontDefinitions, Id, Rect, Shape, Ui, UiBuilder};
 use egui_wgpu::{CallbackResources, CallbackTrait, RenderState, ScreenDescriptor};
 
 use crate::mipgen::{MipGen, Pyramid, FORMAT};
 use crate::renderer::GlassResources;
+use crate::LiveBackdropQuality;
 
 /// Screen mapping of this frame's live backdrop, read by the glass widgets.
 #[derive(Clone, Copy)]
@@ -33,6 +34,7 @@ pub(crate) fn live_state(ctx: &Context) -> Option<LiveState> {
 #[derive(Clone)]
 pub struct LiveBackdrop {
     twin: Context,
+    pending_fonts: Arc<Mutex<Option<FontDefinitions>>>,
 }
 
 impl LiveBackdrop {
@@ -46,11 +48,11 @@ impl LiveBackdrop {
     ///
     /// Panics if [`crate::init`] has not been called on this renderer.
     pub fn new(render_state: &RenderState, fonts: Option<FontDefinitions>) -> Self {
+        Self::new_in(render_state, &mut render_state.renderer.write(), fonts)
+    }
+
+    pub(crate) fn new_in(render_state: &RenderState, renderer: &mut egui_wgpu::Renderer, fonts: Option<FontDefinitions>) -> Self {
         let twin = Context::default();
-        if let Some(fonts) = fonts {
-            twin.set_fonts(fonts);
-        }
-        let mut renderer = render_state.renderer.write();
         let mipgen = renderer
             .callback_resources
             .get::<GlassResources>()
@@ -58,12 +60,12 @@ impl LiveBackdrop {
             .expect("egui_glass::init must be called before LiveBackdrop::new");
         let resources = LiveResources::new(&render_state.device, mipgen);
         renderer.callback_resources.insert(resources);
-        Self { twin }
+        Self { twin, pending_fonts: Arc::new(Mutex::new(fonts)) }
     }
 
     /// Updates the off-screen fonts to match the main egui context.
     pub fn set_fonts(&self, fonts: FontDefinitions) {
-        self.twin.set_fonts(fonts);
+        *self.pending_fonts.lock().expect("font update lock poisoned") = Some(fonts);
     }
 
     /// Shows `add_contents` in `ui` as usual and, this frame only, makes an
@@ -74,7 +76,15 @@ impl LiveBackdrop {
     /// often if egui requests another pass. Keep non-UI side effects outside it:
     /// do not advance simulations, write files, or send requests on each call.
     /// This adds an extra layout/render and mipmap generation to each frame.
-    pub fn run(&self, ui: &mut Ui, clear: Color32, mut add_contents: impl FnMut(&mut Ui)) {
+    pub fn run(&self, ui: &mut Ui, clear: Color32, add_contents: impl FnMut(&mut Ui)) {
+        self.run_with_quality(ui, clear, LiveBackdropQuality::Full, add_contents);
+    }
+
+    /// Like [`Self::run`], with an explicit off-screen resolution for this frame.
+    /// Lower quality reduces rasterization and mipmap work, not the extra UI layout.
+    /// The visible page, input coordinates and glass geometry remain full resolution.
+    /// Quality may change between frames; target textures are reused while sizes match.
+    pub fn run_with_quality(&self, ui: &mut Ui, clear: Color32, quality: LiveBackdropQuality, mut add_contents: impl FnMut(&mut Ui)) {
         let ctx = ui.ctx().clone();
         let slot = ui.painter().add(Shape::Noop);
         add_contents(ui);
@@ -85,6 +95,10 @@ impl LiveBackdrop {
         input.dropped_files.clear();
         input.hovered_files.clear();
         self.twin.memory_mut(|m| *m = ctx.memory(|m| m.clone()));
+        // Copying main memory erases the twin's queued font update; install it afterwards.
+        if let Some(fonts) = self.pending_fonts.lock().expect("font update lock poisoned").take() {
+            self.twin.set_fonts(fonts);
+        }
         let (id, rect, clip, layer, layout) = (ui.id(), ui.max_rect(), ui.clip_rect(), ui.layer_id(), *ui.layout());
         let twin = self.twin.clone();
         let output = self.twin.run_ui(input, |_root| {
@@ -94,7 +108,7 @@ impl LiveBackdrop {
         });
         let primitives = self.twin.tessellate(output.shapes, output.pixels_per_point);
 
-        let frame = FrameData { primitives, textures_delta: output.textures_delta, clear };
+        let frame = FrameData { primitives, textures_delta: output.textures_delta, clear, quality };
         let callback = LiveCallback { frame: Mutex::new(Some(frame)) };
         ui.painter().set(slot, Shape::Callback(egui_wgpu::Callback::new_paint_callback(rect, callback)));
         let state = LiveState { pass_nr: ctx.cumulative_pass_nr(), screen_rect: ctx.viewport_rect() };
@@ -106,6 +120,7 @@ struct FrameData {
     primitives: Vec<ClippedPrimitive>,
     textures_delta: egui::TexturesDelta,
     clear: Color32,
+    quality: LiveBackdropQuality,
 }
 
 struct LiveCallback {
@@ -132,10 +147,11 @@ impl CallbackTrait for LiveCallback {
                 }
             }
         }
-        let [w, h] = screen.size_in_pixels;
-        if w == 0 || h == 0 {
+        if screen.size_in_pixels.contains(&0) {
             return Vec::new();
         }
+        let scaled_screen = frame.quality.screen(screen);
+        let [w, h] = scaled_screen.size_in_pixels;
         res.ensure_target(device, w, h);
         let target = res.target.as_ref().expect("target created above");
         let mipgen = res.mipgen.clone();
@@ -143,7 +159,18 @@ impl CallbackTrait for LiveCallback {
         for (id, delta) in &frame.textures_delta.set {
             res.renderer.update_texture(device, queue, *id, delta);
         }
+        // Keep the original projection: rounding odd target sizes must not shift the page.
         let commands = res.renderer.update_buffers(device, queue, encoder, &frame.primitives, screen);
+        let clip_scale = egui::vec2(
+            w as f32 / screen.size_in_pixels[0] as f32,
+            h as f32 / screen.size_in_pixels[1] as f32,
+        ) / frame.quality.scale();
+        for primitive in &mut frame.primitives {
+            primitive.clip_rect = Rect::from_min_max(
+                (primitive.clip_rect.min.to_vec2() * clip_scale).to_pos2(),
+                (primitive.clip_rect.max.to_vec2() * clip_scale).to_pos2(),
+            );
+        }
         {
             let clear = egui::Rgba::from(frame.clear);
             let mut pass = encoder
@@ -161,7 +188,7 @@ impl CallbackTrait for LiveCallback {
                     ..Default::default()
                 })
                 .forget_lifetime();
-            res.renderer.render(&mut pass, &frame.primitives, screen);
+            res.renderer.render(&mut pass, &frame.primitives, &scaled_screen);
         }
         for id in &frame.textures_delta.free {
             res.renderer.free_texture(id);
@@ -171,7 +198,7 @@ impl CallbackTrait for LiveCallback {
         let pass_nr = res.pass_counter;
         res.pass_counter += 1;
         if let Some(glass) = resources.get_mut::<GlassResources>() {
-            glass.set_live_backdrop(sample_view, mips, pass_nr);
+            glass.set_live_backdrop(sample_view, mips, pass_nr, frame.quality.scale());
         }
         commands
     }
@@ -212,5 +239,13 @@ impl LiveResources {
             return;
         }
         self.target = Some(self.mipgen.create(device, w, h, wgpu::TextureUsages::empty()));
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    pub fn contains_texture(renderer: &egui_wgpu::Renderer, id: egui::TextureId) -> bool {
+        let resources = renderer.callback_resources.get::<super::LiveResources>().unwrap();
+        resources.texture_map.get(&id).is_some_and(|mapped| resources.renderer.texture(mapped).is_some())
     }
 }

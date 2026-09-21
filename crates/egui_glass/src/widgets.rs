@@ -58,6 +58,7 @@ fn text_color(ui: &Ui, style: &GlassStyle) -> Color32 {
 pub struct Glass {
     style: GlassStyle,
     inner_margin: Margin,
+    preserve_theme: bool,
 }
 
 impl Default for Glass {
@@ -70,7 +71,7 @@ impl Default for Glass {
 impl Glass {
     /// Creates a container with `style` and a 16-point inner margin.
     pub fn new(style: GlassStyle) -> Self {
-        Self { style, inner_margin: Margin::same(16) }
+        Self { style, inner_margin: Margin::same(16), preserve_theme: false }
     }
 
     /// A large frosted sheet (sidebar, sheet): [`GlassStyle::panel`].
@@ -89,13 +90,24 @@ impl Glass {
         self
     }
 
-    /// Lays out contents with flat control visuals and paints glass behind them.
+    /// Keeps the parent UI's control visuals instead of applying flat glass visuals.
+    /// Defaults to `false`. Glass material and padding are unaffected; choose a tint
+    /// that provides enough contrast with the preserved text colours.
+    pub fn preserve_theme(mut self, preserve: bool) -> Self {
+        self.preserve_theme = preserve;
+        self
+    }
+
+    /// Lays out contents and paints glass behind them, applying flat control visuals
+    /// unless [`Self::preserve_theme`] is enabled.
     /// Returns the closure's result and the container's hover response.
     pub fn show<R>(self, ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
         let background = ui.painter().add(Shape::Noop);
         let max_rect = expand_margin(ui.available_rect_before_wrap(), self.inner_margin, -1.0);
         let mut content = ui.new_child(egui::UiBuilder::new().max_rect(max_rect));
-        flat_visuals(&mut content, &self.style);
+        if !self.preserve_theme {
+            flat_visuals(&mut content, &self.style);
+        }
         let inner = add_contents(&mut content);
         let rect = expand_margin(content.min_rect(), self.inner_margin, 1.0);
         ui.painter().set(background, glass_shape(ui, rect, &self.style));
@@ -112,6 +124,7 @@ pub struct GlassButton {
     min_size: Vec2,
     text_color: Option<Color32>,
     accessible_name: Option<String>,
+    animate: bool,
 }
 
 impl GlassButton {
@@ -124,6 +137,7 @@ impl GlassButton {
             min_size: Vec2::new(44.0, 44.0),
             text_color: None,
             accessible_name: None,
+            animate: true,
         }
     }
 
@@ -158,6 +172,14 @@ impl GlassButton {
         self
     }
 
+    /// Enables hover/press material transitions (default `true`).
+    /// Uses the UI's animation time, capped at 120 ms; `false` switches instantly.
+    /// Input and keyboard focus remain immediate.
+    pub fn animate(mut self, animate: bool) -> Self {
+        self.animate = animate;
+        self
+    }
+
     /// Draws the button and returns its interaction response, including clicks.
     pub fn show(self, ui: &mut Ui) -> Response {
         let galley = self.text.into_galley(ui, None, f32::INFINITY, egui::TextStyle::Button);
@@ -166,13 +188,7 @@ impl GlassButton {
         let accessible_name = self.accessible_name.as_deref().unwrap_or_else(|| galley.text());
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), accessible_name));
         if ui.is_rect_visible(rect) {
-            let style = if response.is_pointer_button_down_on() {
-                self.style.pressed()
-            } else if response.hovered() {
-                self.style.hovered()
-            } else {
-                self.style
-            };
+            let style = crate::animation::interaction_style(ui, &response, self.style, self.animate);
             paint_glass(ui, rect, &style);
             let color = self.text_color.unwrap_or_else(|| text_color(ui, &style));
             let pos = rect.center() - galley.size() / 2.0;
@@ -188,11 +204,12 @@ impl GlassButton {
 }
 
 /// A capsule glass bar holding flat buttons (`ui.button`, `ui.selectable_label`, …).
-/// Children get a transparent idle background and a soft highlight on hover,
+/// By default, children get a transparent idle background and a soft highlight on hover,
 /// following Apple's rule of never stacking glass on glass.
 pub struct GlassToolbar {
     style: GlassStyle,
     spacing: f32,
+    preserve_theme: bool,
 }
 
 impl Default for GlassToolbar {
@@ -204,7 +221,7 @@ impl Default for GlassToolbar {
 impl GlassToolbar {
     /// Creates a toolbar with a capsule-shaped material and 6-point item spacing.
     pub fn new(style: GlassStyle) -> Self {
-        Self { style: style.capsule(), spacing: 6.0 }
+        Self { style: style.capsule(), spacing: 6.0, preserve_theme: false }
     }
 
     /// Sets horizontal spacing between items in logical points.
@@ -213,9 +230,16 @@ impl GlassToolbar {
         self
     }
 
-    /// Draws a horizontal row of flat controls on a glass capsule.
+    /// Keeps the parent UI's control visuals. Defaults to `false`.
+    /// Toolbar spacing and padding are unaffected. See [`Glass::preserve_theme`].
+    pub fn preserve_theme(mut self, preserve: bool) -> Self {
+        self.preserve_theme = preserve;
+        self
+    }
+
+    /// Draws a horizontal row of controls on a glass capsule.
     pub fn show<R>(self, ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
-        Glass::new(self.style).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
+        Glass::new(self.style).preserve_theme(self.preserve_theme).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = self.spacing;
             ui.spacing_mut().button_padding = Vec2::new(12.0, 10.0);
             ui.horizontal(add_contents).inner

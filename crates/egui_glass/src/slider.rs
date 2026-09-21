@@ -28,12 +28,13 @@ pub struct GlassSlider<'a> {
     style: GlassStyle,
     width: Option<f32>,
     step: Option<f64>,
+    animate: bool,
 }
 
 impl<'a> GlassSlider<'a> {
     /// Creates a linear slider over a finite range, filling the available width.
     pub fn new(value: &'a mut f32, range: RangeInclusive<f32>) -> Self {
-        Self { value, range, text: String::new(), suffix: String::new(), style: GlassStyle::regular(), width: None, step: None }
+        Self { value, range, text: String::new(), suffix: String::new(), style: GlassStyle::regular(), width: None, step: None, animate: true }
     }
 
     /// Sets the visible label and the accessible name.
@@ -63,6 +64,14 @@ impl<'a> GlassSlider<'a> {
     /// Sets the value step for pointer and keyboard interaction.
     pub fn step_by(mut self, step: f64) -> Self {
         self.step = Some(step);
+        self
+    }
+
+    /// Enables hover/press material transitions (default `true`).
+    /// Uses the UI's animation time, capped at 120 ms; `false` switches instantly.
+    /// The value and thumb position always update immediately.
+    pub fn animate(mut self, animate: bool) -> Self {
+        self.animate = animate;
         self
     }
 
@@ -117,8 +126,8 @@ impl<'a> GlassSlider<'a> {
         let thumb = Rect::from_center_size(egui::pos2(x, rect.center().y), Vec2::new(half_width * 2.0, THUMB_HEIGHT));
         let fill = Rect::from_min_max(track.min, egui::pos2(x, track.bottom()));
         ui.painter().rect_filled(fill, 3.0, if ui.is_enabled() { accent } else { track_color });
+        let style = crate::animation::interaction_style(ui, response, self.style, self.animate);
         if ui.is_enabled() {
-            let style = if response.dragged() { self.style.pressed() } else if response.hovered() { self.style.hovered() } else { self.style };
             paint_glass(ui, thumb, &GlassStyle {
                 tint: Color32::from_rgba_unmultiplied(255, 255, 255, 245),
                 specular: style.specular.min(0.12), border: style.border.min(0.08),

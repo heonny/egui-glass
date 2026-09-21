@@ -32,7 +32,7 @@ struct Uniforms {
     srgb_out: f32,
     light_dir: [f32; 2],
     max_lod: f32,
-    _pad: f32,
+    backdrop_scale: f32,
     corner_a: [f32; 4], // p, a, b, c
     corner_b: [f32; 4], // d, r, theta3, 0
     fill: [f32; 4],     // colour outside the backdrop rect
@@ -73,7 +73,7 @@ pub(crate) struct GlassResources {
     backdrop_view: wgpu::TextureView,
     max_lod: f32,
     /// Off-screen backdrop from [`crate::LiveBackdrop`] and the live frame it belongs to.
-    live: Option<(wgpu::TextureView, f32, u64)>,
+    live: Option<(wgpu::TextureView, f32, u64, f32)>,
     /// Which live frame the bind group was built for, if it is bound to a live view.
     bound_live: Option<u64>,
     uniforms: wgpu::Buffer,
@@ -83,11 +83,12 @@ pub(crate) struct GlassResources {
     last_pass: u64,
     /// Max mip level of whatever backdrop is bound for the current pass.
     current_lod: f32,
+    current_backdrop_scale: f32,
     srgb_out: bool,
 }
 
 impl GlassResources {
-    fn new(render_state: &RenderState, msaa_samples: u32) -> Self {
+    pub(crate) fn new(render_state: &RenderState, msaa_samples: u32) -> Self {
         let device = &render_state.device;
         let shader = device.create_shader_module(wgpu::include_wgsl!("glass.wgsl"));
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -189,6 +190,7 @@ impl GlassResources {
             next_slot: 0,
             last_pass: u64::MAX,
             current_lod: 0.0,
+            current_backdrop_scale: 1.0,
             srgb_out: render_state.target_format.is_srgb(),
         }
     }
@@ -235,20 +237,21 @@ impl GlassResources {
     }
 
     /// Use an off-screen render as the backdrop for the glass prepared after this call.
-    pub(crate) fn set_live_backdrop(&mut self, view: wgpu::TextureView, mip_levels: u32, live_frame: u64) {
-        self.live = Some((view, mip_levels.saturating_sub(1) as f32, live_frame));
+    pub(crate) fn set_live_backdrop(&mut self, view: wgpu::TextureView, mip_levels: u32, live_frame: u64, scale: f32) {
+        self.live = Some((view, mip_levels.saturating_sub(1) as f32, live_frame, scale));
     }
 
     /// Binds the live view when one was produced this pass, else the static backdrop.
     fn bind_current(&mut self, device: &wgpu::Device, new_pass: bool) -> f32 {
         if new_pass {
             // A live frame is consumed by the pass it was produced in.
-            if self.live.as_ref().is_some_and(|(_, _, frame)| self.bound_live == Some(*frame)) {
+            if self.live.as_ref().is_some_and(|(_, _, frame, _)| self.bound_live == Some(*frame)) {
                 self.live = None;
             }
         }
         match &self.live {
-            Some((view, lod, frame)) => {
+            Some((view, lod, frame, scale)) => {
+                self.current_backdrop_scale = *scale;
                 if self.bound_live != Some(*frame) {
                     self.bind_group = Self::create_bind_group(device, &self.layout, &self.uniforms, view, &self.sampler);
                     self.bound_live = Some(*frame);
@@ -256,6 +259,7 @@ impl GlassResources {
                 *lod
             }
             None => {
+                self.current_backdrop_scale = 1.0;
                 if self.bound_live.is_some() {
                     self.bind_group = Self::create_bind_group(device, &self.layout, &self.uniforms, &self.backdrop_view, &self.sampler);
                     self.bound_live = None;
@@ -342,7 +346,7 @@ impl GlassCallback {
             srgb_out: srgb_out as u32 as f32,
             light_dir: [light.x, light.y],
             max_lod,
-            _pad: 0.0,
+            backdrop_scale: 1.0,
             corner_a: [corner[0], corner[1], corner[2], corner[3]],
             corner_b: [corner[4], corner[5], corner[6], 0.0],
             fill: unpremultiply(self.fill),
@@ -363,7 +367,8 @@ impl CallbackTrait for GlassCallback {
         let Some(res) = resources.get_mut::<GlassResources>() else { return Vec::new() };
         let slot = res.alloc_slot(device, encoder, self.pass_nr);
         self.slot.store(slot, Ordering::Relaxed);
-        let uniforms = self.uniforms(screen.pixels_per_point, res.srgb_out, res.current_lod);
+        let mut uniforms = self.uniforms(screen.pixels_per_point, res.srgb_out, res.current_lod);
+        uniforms.backdrop_scale = res.current_backdrop_scale;
         queue.write_buffer(&res.uniforms, SLOT_SIZE * slot as u64, bytemuck::bytes_of(&uniforms));
         Vec::new()
     }
