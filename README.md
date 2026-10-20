@@ -2,6 +2,8 @@
   <img src="https://raw.githubusercontent.com/heonny/egui-glass/main/assets/branding/readme-logo.png" alt="egui_glass" width="640">
 </p>
 
+**English** | [한국어](https://github.com/heonny/egui-glass/blob/main/README.ko.md)
+
 [![CI](https://github.com/heonny/egui-glass/actions/workflows/ci.yml/badge.svg)](https://github.com/heonny/egui-glass/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/egui_glass.svg)](https://crates.io/crates/egui_glass)
 [![API docs](https://docs.rs/egui_glass/badge.svg)](https://docs.rs/egui_glass)

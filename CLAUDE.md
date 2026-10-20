@@ -108,6 +108,11 @@ links; `docs/guide.md` = the short path to using it in an app; `docs/reference.m
 releases). When a default or an API changes, update the reference table and, if it touches the
 short path, the guide.
 
+`README.ko.md` is the Korean translation of the root README; both carry the English / 한국어
+switch under the logo. Any edit to one README is mirrored into the other in the same change,
+with identical code blocks and links, so the two never drift. The crate README on crates.io
+is the English one (`readme = "../../README.md"`).
+
 Verification: [GPU and accessibility checks](docs/verification.md),
 [performance methodology and results](docs/performance.md), and [asset provenance](docs/assets.md).
 Implementation records: [live quality](docs/live-quality-plan.md) and
